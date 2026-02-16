@@ -59,3 +59,5 @@ cdk.out/
 *.npy
 
 /pretrained_models
+/results
+/models
