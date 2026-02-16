@@ -4,7 +4,7 @@
 import argparse
 import json
 import numpy as np
-from .arithmetic_tokenizer import ArithmeticBPETokenizer
+from core.data.tokenizer import ArithmeticBPETokenizer
 
 
 def analyze_corpus_lengths(corpus_path, tokenizer_path, max_samples=None, corpus_type='foundational'):

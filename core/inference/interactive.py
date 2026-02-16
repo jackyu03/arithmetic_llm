@@ -38,14 +38,14 @@ class InteractiveArithmeticSolver:
         print("Loading model and tokenizer...")
         
         # Load tokenizer
-        from .arithmetic_tokenizer import (
+        from core.data.tokenizer import (
             ArithmeticBPETokenizer
         )
         self.tokenizer = ArithmeticBPETokenizer()
         self.tokenizer.load(tokenizer_path)
         
         # Load model
-        from .transformer_model import (
+        from core.model.transformer import (
             ArithmeticTransformer
         )
         checkpoint = torch.load(model_path, map_location=device)

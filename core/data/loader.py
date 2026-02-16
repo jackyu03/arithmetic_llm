@@ -4,10 +4,10 @@ import json
 import torch
 from torch.utils.data import Dataset, DataLoader
 from typing import List, Tuple
-from .arithmetic_tokenizer import (
+from core.data.tokenizer import (
     ArithmeticBPETokenizer
 )
-from .evaluator import eval_expression
+from core.eval.evaluator import eval_expression
 
 
 class ArithmeticDataset(Dataset):

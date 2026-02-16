@@ -2,7 +2,7 @@
 
 import os
 import sys
-from .arithmetic_tokenizer import ArithmeticBPETokenizer
+from core.data.tokenizer import ArithmeticBPETokenizer
 
 
 def print_token_table(tokenizer, format='table', max_tokens=None):
@@ -124,7 +124,7 @@ def main():
     # Load tokenizer
     if not os.path.exists(tokenizer_path):
         print(f"Error: Tokenizer not found at {tokenizer_path}", file=sys.stderr)
-        print("Please run: python homeowrk/arithmetic_llm/train_tokenizer.py", file=sys.stderr)
+        print("Please run: python homeowrk/core/train_tokenizer.py", file=sys.stderr)
         sys.exit(1)
 
     tokenizer = ArithmeticBPETokenizer(vocab_size=1000)

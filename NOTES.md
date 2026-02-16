@@ -2,7 +2,7 @@
 
 Consolidated technical notes for tokenizer behavior, data loading, and evaluation.
 
-## Tokenizer (arithmetic_tokenizer.py)
+## Tokenizer (core/data/tokenizer.py)
 
 ### Special tokens and atomic symbols
 - Special tokens: `<pad>`, `<unk>`, `<bos>`, `<eos>`, `<think>`, `</think>`
@@ -19,7 +19,7 @@ Consolidated technical notes for tokenizer behavior, data loading, and evaluatio
 ### Compatibility note
 - Any tokenizer behavior change (BOS/EOS or atomic symbol handling) requires retraining the tokenizer and downstream models.
 
-## Data loading and masking (data_loader.py)
+## Data loading and masking (core/data/loader.py)
 
 ### Foundational mode
 - Input sequence is `problem + solution`.
@@ -35,22 +35,22 @@ Consolidated technical notes for tokenizer behavior, data loading, and evaluatio
 - Padding uses `<pad>` token; padding positions are ignored in loss via `-100` labels.
 
 ## EOS truncation during generation
-- `transformer_model.generate()` stops when `<eos>` is produced (or when max length is reached).
+- `core/model/transformer.py: ArithmeticTransformer.generate()` stops when `<eos>` is produced (or when max length is reached).
 - Tokenizer `decode()` truncates anything after the first `<eos>`.
 
-## Evaluation updates (evaluator.py / run_evaluation.py)
+## Evaluation updates (core/eval/evaluator.py / scripts/eval/evaluate.py)
 
 - Evaluation runs in batches via `_generate_batch()` for faster inference.
 - CLI supports `--batch-size` and `--max-gen-length`.
 - Single-sample generation remains available for interactive use.
 
-## Expression evaluator fix (evaluator.py)
+## Expression evaluator fix (core/eval/evaluator.py)
 
 - Expressions with consecutive numbers separated by whitespace are rejected (e.g., `"6 18"`).
 - Detection uses a pre-check like `\d\s+\d` before stripping spaces.
 
 ## Token table and inspection
 
-- Print basic table: `python homeowrk/arithmetic_llm/print_token_table.py [N]`
-- Export CSV/JSON: `python homeowrk/arithmetic_llm/print_token_table.py csv|json [N]`
-- Detailed view and stats: `python homeowrk/arithmetic_llm/show_token_table.py`
+- Print basic table: `python scripts/utils/print_token_table.py [N]`
+- Export CSV/JSON: `python scripts/utils/print_token_table.py csv|json [N]`
+- Detailed view and stats: `python scripts/utils/show_token_table.py`

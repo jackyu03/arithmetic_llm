@@ -7,7 +7,7 @@ import random
 import tempfile
 from typing import List, Tuple
 
-from .corpus_generator import CorpusGenerator
+from core.data.corpus import CorpusGenerator
 
 
 def _generate_instruction_corpus(

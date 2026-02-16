@@ -4,8 +4,8 @@ from typing import Dict, Any
 
 import torch
 
-from .lora_config import LoRAConfig
-from .transformer_model import ArithmeticTransformer
+from core.model.lora.config import LoRAConfig
+from core.model.transformer import ArithmeticTransformer
 
 
 def count_parameters(model: torch.nn.Module, trainable_only: bool = False) -> int:

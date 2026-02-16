@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Test script to verify EOS token truncation behavior."""
 
-from .arithmetic_tokenizer import ArithmeticBPETokenizer
+from core.data.tokenizer import ArithmeticBPETokenizer
 
 
 def test_eos_truncation():

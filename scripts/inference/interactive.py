@@ -2,7 +2,7 @@
 """Command-line interface for interactive arithmetic solving."""
 
 import argparse
-from .interactive_solver import InteractiveArithmeticSolver
+from core.inference.interactive import InteractiveArithmeticSolver
 
 
 def main():

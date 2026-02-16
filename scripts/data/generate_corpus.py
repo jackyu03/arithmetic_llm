@@ -3,7 +3,7 @@
 
 import argparse
 import os
-from .corpus_generator import CorpusGenerator
+from core.data.corpus import CorpusGenerator
 
 
 def main():
@@ -46,14 +46,14 @@ def main():
         "--output-foundational",
         type=str,
         default="data/foundational_corpus.txt",
-        help="Path to save foundational corpus (default: homeowrk/arithmetic_llm/data/foundational_corpus.txt)"
+        help="Path to save foundational corpus (default: homeowrk/core/data/foundational_corpus.txt)"
     )
     
     parser.add_argument(
         "--output-instruction",
         type=str,
         default="data/instruction_corpus.txt",
-        help="Path to save instruction corpus (default: homeowrk/arithmetic_llm/data/instruction_corpus.txt)"
+        help="Path to save instruction corpus (default: homeowrk/core/data/instruction_corpus.txt)"
     )
     
     parser.add_argument(

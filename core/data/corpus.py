@@ -2,8 +2,8 @@
 
 import json
 from typing import Tuple
-from .generator import ExpressionGenerator
-from .evaluator import eval_expression
+from core.inference.generator import ExpressionGenerator
+from core.eval.evaluator import eval_expression
 
 
 class CorpusGenerator:

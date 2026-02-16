@@ -6,12 +6,12 @@ import os
 import math
 from datetime import datetime
 
-from .arithmetic_tokenizer import ArithmeticBPETokenizer
-from .data_loader import ArithmeticDataset
-from .evaluator import eval_expression
-from .generator import ExpressionGenerator
-from .grpo_config import GRPOConfig
-from .grpo_trainer import GRPOTrainer
+from core.data.tokenizer import ArithmeticBPETokenizer
+from core.data.loader import ArithmeticDataset
+from core.eval.evaluator import eval_expression
+from core.inference.generator import ExpressionGenerator
+from core.training.grpo_config import GRPOConfig
+from core.training.grpo_trainer import GRPOTrainer
 
 
 def _batch_iter(items: List[dict], batch_size: int) -> Iterator[Tuple[List[str], List[int]]]:

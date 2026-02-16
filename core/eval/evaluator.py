@@ -130,7 +130,7 @@ if __name__ == "__main__":
     print(eval_expression("5 + (10 - 3)"))
     print(eval_expression("((((15 - 5) + 8) - (14 - (16 + 10))) + 1) - ((((4 - 11) - (15 - 13)) + (6 - (5 - 4))) - 11)"))
 
-    from .generator import ExpressionGenerator
+    from core.inference.generator import ExpressionGenerator
     for _ in range(5):
         generator = ExpressionGenerator(max_depth=5, invalid_rate=0.1)
         new_expr = generator.generate()
@@ -171,12 +171,12 @@ class ModelEvaluator:
         self.base_checkpoint_path = base_checkpoint_path
         
         # Load tokenizer
-        from .arithmetic_tokenizer import ArithmeticBPETokenizer
+        from core.data.tokenizer import ArithmeticBPETokenizer
         self.tokenizer = ArithmeticBPETokenizer()
         self.tokenizer.load(tokenizer_path)
         
         # Load model
-        from .transformer_model import ArithmeticTransformer
+        from core.model.transformer import ArithmeticTransformer
         checkpoint = torch.load(model_path, map_location="cpu")
         is_adapter = (
             isinstance(checkpoint, dict)
@@ -273,7 +273,7 @@ class ModelEvaluator:
                 - avg_generation_length: Average number of tokens generated
                 - total_samples: Total number of test samples
         """
-        from .generator import ExpressionGenerator
+        from core.inference.generator import ExpressionGenerator
         
         # Generate test set
         generator = ExpressionGenerator(

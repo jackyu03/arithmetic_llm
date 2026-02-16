@@ -59,7 +59,7 @@ Here's a complete workflow from corpus generation to interactive solving:
 
 # Generate foundational training corpus with 100K samples (plain text)
 # This large corpus provides the base model with extensive arithmetic patterns
-python generate_foundational_plaintext.py \
+python scripts/data/generate_foundational_plaintext.py \
   --num-samples 100000 \
   --max-depth 4 \
   --num-range 1 20 \
@@ -68,7 +68,7 @@ python generate_foundational_plaintext.py \
 
 # Generate mixed instruction corpus (valid + invalid)
 # This creates a balanced dataset without writing intermediate files
-python generate_instruction_corpus_mixed.py \
+python scripts/data/generate_instruction_corpus_mixed.py \
   --num-samples 20000 \
   --max-depth 4 \
   --num-range 1 20 \
@@ -77,7 +77,7 @@ python generate_instruction_corpus_mixed.py \
 
 # Generate separate test corpus for evaluation (10K samples, minimal errors)
 # This provides a clean test set with only 1% invalid expressions
-python generate_corpus.py \
+python scripts/data/generate_corpus.py \
   --instruction-only \
   --num-samples 1000 \
   --max-depth 4 \
@@ -89,21 +89,21 @@ python generate_corpus.py \
 python -c "import sys; [print(f'{sum(1 for _ in open(f))} {f}') for f in ['data/foundational_corpus.txt', 'data/instruction_corpus.txt', 'data/instruction_corpus_test.txt']]"
 
 # 2. Train tokenizer
-python train_tokenizer.py \
+python scripts/data/train_tokenizer.py \
   --corpus-path data/foundational_corpus.txt \
   --output-dir data/tokenizer \
   --vocab-size 1000
 
 # show tokenizer table
-python print_token_table.py --tokenizer_path data/tokenizer/tokenizer.pkl  > tokens.csv
+python scripts/utils/print_token_table.py --tokenizer_path data/tokenizer/tokenizer.pkl  > tokens.csv
 
 # Analyze your instruction corpus
-python check_sequence_lengths.py \
+python scripts/utils/check_sequence_lengths.py \
   --corpus-path data/instruction_corpus.txt \
   --tokenizer-path data/tokenizer
 
 # 3. Train foundational model
-python run_foundational_training.py \
+python scripts/train/foundational.py \
   --corpus-path data/foundational_corpus.txt \
   --output-dir models/ \
   --tokenizer-path data/tokenizer \
@@ -112,7 +112,7 @@ python run_foundational_training.py \
   --batch-size 16
 
 #3.1 Evaluate the foundational model, performance would be bad
-python run_evaluation.py \
+python scripts/eval/evaluate.py \
   --model-path models/foundational_YYYYMMDD_HHMMSS/best_model.pt \
   --tokenizer-path data/tokenizer \
   --max-gen-length 512 \
@@ -121,7 +121,7 @@ python run_evaluation.py \
 
 
 # 4. Fine-tune instruction model
-python run_instruction_training.py \
+python scripts/train/instruction.py \
   --instruction-corpus-path data/instruction_corpus.txt \
   --output-dir models/ \
   --tokenizer-path data/tokenizer \
@@ -129,7 +129,7 @@ python run_instruction_training.py \
   --num-epochs 10
 
 # 4.1 Evaluate the model
-python run_evaluation.py \
+python scripts/eval/evaluate.py \
   --model-path models/instruction_YYYYMMDD_HHMMSS/best_model.pt \
   --tokenizer-path data/tokenizer \
   --max-gen-length 512 \
@@ -137,7 +137,7 @@ python run_evaluation.py \
   --num-samples 1000
 
 # 5 Fine-tune with LoRA adapters (optional)
-python run_instruction_training_lora.py \
+python scripts/train/instruction_lora.py \
   --instruction-corpus-path data/instruction_corpus.txt \
   --output-dir models/ \
   --tokenizer-path data/tokenizer \
@@ -150,7 +150,7 @@ python run_instruction_training_lora.py \
 
 
 # 5.1 Evaluate the LoRA merged model (optional)
-python run_evaluation.py \
+python scripts/eval/evaluate.py \
   --model-path models/instruction_lora_YYYYMMDD_HHMMSS/merged_model.pt \
   --tokenizer-path data/tokenizer \
   --max-gen-length 512 \
@@ -158,7 +158,7 @@ python run_evaluation.py \
   --num-samples 1000
 
 # 6 GRPO training (optional)
-python run_grpo_training.py \
+python scripts/train/grpo.py \
   --tokenizer data/tokenizer \
   --sft-checkpoint models/instruction_YYYYMMDD_HHMMSS/best_model.pt \
   --output-dir models/grpo \
@@ -175,7 +175,7 @@ python run_grpo_training.py \
  
 
 #6.1 eval GRPO model
-python run_evaluation.py   --model-path models/grpo/grpo_YYYYMMMDD_HHMMSS/final_modelpt    --tokenizer-path data/tokenizer   --max-gen-length 512   --batch-size 1   --num-samples 1000
+python scripts/eval/evaluate.py   --model-path models/grpo/grpo_YYYYMMMDD_HHMMSS/final_modelpt    --tokenizer-path data/tokenizer   --max-gen-length 512   --batch-size 1   --num-samples 1000
 
 ```
 
@@ -187,7 +187,7 @@ Generate training data consisting of arithmetic expressions and their step-by-st
 
 ```bash
 # Foundational corpus (plain text)
-python generate_foundational_plaintext.py \
+python scripts/data/generate_foundational_plaintext.py \
   --num-samples 50000 \
   --max-depth 4 \
   --num-range 1 20 \
@@ -195,7 +195,7 @@ python generate_foundational_plaintext.py \
   --output-txt data/foundational_corpus_plain.txt
 
 # Mixed instruction corpus (valid + invalid)
-python generate_instruction_corpus_mixed.py \
+python scripts/data/generate_instruction_corpus_mixed.py \
   --num-samples 50000 \
   --max-depth 4 \
   --num-range 1 20 \
@@ -253,7 +253,7 @@ Final Result: 12
 Train a BPE (Byte Pair Encoding) tokenizer on the arithmetic corpus.
 
 ```bash
-python train_tokenizer.py \
+python scripts/data/train_tokenizer.py \
   --corpus-path data/foundational_corpus_plain.txt \
   --vocab-size 1000 \
   --output-dir data/tokenizer
@@ -277,7 +277,7 @@ python train_tokenizer.py \
 Train the base transformer model on arithmetic expressions.
 
 ```bash
-python run_foundational_training.py \
+python scripts/train/foundational.py \
   --corpus-path data/foundational_corpus_plain.txt \
   --tokenizer-path data/tokenizer \
   --output-dir models \
@@ -308,7 +308,7 @@ python run_foundational_training.py \
 **Configuration Files:**
 You can also use JSON configuration files:
 ```bash
-python run_foundational_training.py \
+python scripts/train/foundational.py \
   --corpus-path data/foundational_corpus_plain.txt \
   --tokenizer-path data/tokenizer \
   --config training_config.json \
@@ -330,7 +330,7 @@ Training creates a timestamped directory containing:
 Fine-tune the foundational model with instruction-formatted data.
 
 ```bash
-python run_instruction_training.py \
+python scripts/train/instruction.py \
   --instruction-corpus-path data/instruction_corpus.txt \
   --tokenizer-path data/tokenizer \
   --foundational-checkpoint models/foundational_YYYYMMDD_HHMMSS/best_model.pt \
@@ -360,7 +360,7 @@ python run_instruction_training.py \
 Fine-tune with LoRA adapters for parameter-efficient training.
 
 ```bash
-python run_instruction_training_lora.py \
+python scripts/train/instruction_lora.py \
   --instruction-corpus-path data/instruction_corpus.txt \
   --tokenizer-path data/tokenizer \
   --foundational-checkpoint models/foundational_YYYYMMDD_HHMMSS/best_model.pt \
@@ -391,7 +391,7 @@ python run_instruction_training_lora.py \
 Train with Group Relative Policy Optimization (GRPO) using verifiable rewards.
 
 ```bash
-python run_grpo_training.py \
+python scripts/train/grpo.py \
   --instruction-corpus data/instruction_corpus.txt \
   --tokenizer data/tokenizer \
   --sft-checkpoint models/instruction_YYYYMMDD_HHMMSS/best_model.pt \
@@ -435,7 +435,7 @@ python run_evaluation.py \
 
 **LoRA Evaluation (merged model):**
 ```bash
-python run_evaluation.py \
+python scripts/eval/evaluate.py \
   --model-path models/instruction_lora_YYYYMMDD_HHMMSS/merged_model.pt \
   --tokenizer-path data/tokenizer \
   --num-samples 1000 \
@@ -445,7 +445,7 @@ python run_evaluation.py \
 
 If you saved only adapters, merge them into a base checkpoint first:
 ```bash
-python merge_lora_adapter.py \
+python scripts/model/merge_adapter.py \
   --base-checkpoint models/foundational_YYYYMMDD_HHMMSS/best_model.pt \
   --adapter-path models/instruction_lora_YYYYMMDD_HHMMSS/lora_adapter.pt \
   --output-path models/instruction_lora_YYYYMMDD_HHMMSS/merged_model.pt
@@ -481,7 +481,7 @@ Evaluation creates timestamped files:
 Use the trained model interactively to solve arithmetic problems.
 
 ```bash
-python run_interactive.py \
+python scripts/inference/interactive.py \
   --model-path models/instruction_YYYYMMDD_HHMMSS/best_model.pt \
   --tokenizer-path data/tokenizer
 ```

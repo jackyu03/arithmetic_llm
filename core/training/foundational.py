@@ -12,10 +12,10 @@ from datetime import datetime
 from tqdm import tqdm
 from typing import Optional, Dict, Tuple
 
-from .transformer_model import ArithmeticTransformer
-from .arithmetic_tokenizer import ArithmeticBPETokenizer
-from .data_loader import create_dataloaders
-from .training_config import TrainingConfig
+from core.model.transformer import ArithmeticTransformer
+from core.data.tokenizer import ArithmeticBPETokenizer
+from core.data.loader import create_dataloaders
+from core.training.config import TrainingConfig
 
 
 def get_linear_schedule_with_warmup(

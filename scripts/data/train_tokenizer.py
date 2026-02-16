@@ -3,7 +3,7 @@
 
 import argparse
 import os
-from .arithmetic_tokenizer import ArithmeticBPETokenizer
+from core.data.tokenizer import ArithmeticBPETokenizer
 
 
 def main():

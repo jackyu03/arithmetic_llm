@@ -10,8 +10,8 @@ import torch.nn as nn
 import torch.nn.functional as F
 from typing import Optional, Dict, Tuple, Iterator, Any
 
-from .lora_config import LoRAConfig
-from .lora_layer import LoRALayer
+from core.model.lora.config import LoRAConfig
+from core.model.lora.layer import LoRALayer
 
 
 class ArithmeticTransformer(nn.Module):

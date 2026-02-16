@@ -3,8 +3,8 @@
 import argparse
 import os
 
-from .grpo_config import GRPOConfig
-from .train_grpo import train_grpo_model
+from core.training.grpo_config import GRPOConfig
+from core.training.grpo import train_grpo_model
 
 
 def _build_parser() -> argparse.ArgumentParser:

@@ -20,7 +20,7 @@ def main():
     print("=" * 80)
     
     # Read the tokenizer file
-    tokenizer_file = "arithmetic_tokenizer.py"
+    tokenizer_file = "src/core/data/tokenizer.py"
     
     if not os.path.exists(tokenizer_file):
         print(f"Error: {tokenizer_file} not found")

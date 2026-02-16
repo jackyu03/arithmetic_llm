@@ -2,7 +2,7 @@
 """Command-line interface for model evaluation."""
 
 import argparse
-from .evaluator import ModelEvaluator
+from core.eval.evaluator import ModelEvaluator
 
 
 def main():
@@ -60,7 +60,7 @@ def main():
         "--output-dir",
         type=str,
         default="evaluation_results",
-        help="Directory to save evaluation results (default: homeowrk/arithmetic_llm/evaluation_results)"
+        help="Directory to save evaluation results (default: homeowrk/core/evaluation_results)"
     )
     
     parser.add_argument(

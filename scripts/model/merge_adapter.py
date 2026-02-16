@@ -3,7 +3,7 @@
 
 import argparse
 
-from .lora_utils import merge_lora_checkpoint
+from core.model.lora.utils import merge_lora_checkpoint
 
 
 def main() -> None:

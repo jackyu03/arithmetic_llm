@@ -3,8 +3,8 @@
 
 import argparse
 import json
-from .train_foundational import train_foundational_model
-from .training_config import TrainingConfig
+from core.training.foundational import train_foundational_model
+from core.training.config import TrainingConfig
 
 
 def main():
@@ -32,7 +32,7 @@ def main():
         "--output-dir",
         type=str,
         default="models",
-        help="Directory to save model checkpoints (default: homeowrk/arithmetic_llm/models)"
+        help="Directory to save model checkpoints (default: homeowrk/core/models)"
     )
     
     # Training configuration

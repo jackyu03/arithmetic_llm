@@ -1,7 +1,7 @@
 """Display the tokenizer vocabulary (token table) in various formats."""
 
 import os
-from .arithmetic_tokenizer import ArithmeticBPETokenizer
+from core.data.tokenizer import ArithmeticBPETokenizer
 
 
 def print_separator(title=""):
@@ -241,7 +241,7 @@ def main():
     
     if not os.path.exists(tokenizer_path):
         print(f"\nError: Tokenizer not found at {tokenizer_path}")
-        print("Please run: python homeowrk/arithmetic_llm/train_tokenizer.py")
+        print("Please run: python homeowrk/core/train_tokenizer.py")
         return
     
     # Load tokenizer
@@ -273,11 +273,11 @@ def main():
     print("=" * 80)
     print("""
 To view the token table:
-  python homeowrk/arithmetic_llm/show_token_table.py
+  python homeowrk/core/show_token_table.py
 
 To search for specific tokens:
   python -c "
-  from .arithmetic_tokenizer import ArithmeticBPETokenizer
+  from core.data.tokenizer import ArithmeticBPETokenizer
   tokenizer = ArithmeticBPETokenizer(vocab_size=1000)
   tokenizer.load('data/tokenizer')
   
@@ -290,7 +290,7 @@ To search for specific tokens:
 
 To get a specific token:
   python -c "
-  from .arithmetic_tokenizer import ArithmeticBPETokenizer
+  from core.data.tokenizer import ArithmeticBPETokenizer
   tokenizer = ArithmeticBPETokenizer(vocab_size=1000)
   tokenizer.load('data/tokenizer')
   

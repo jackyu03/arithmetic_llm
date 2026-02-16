@@ -4,9 +4,9 @@
 import argparse
 import json
 
-from .lora_config import LoRAConfig
-from .train_instruction_lora import train_instruction_model_lora
-from .training_config import TrainingConfig
+from core.model.lora.config import LoRAConfig
+from core.training.instruction_lora import train_instruction_model_lora
+from core.training.config import TrainingConfig
 
 
 def main():
@@ -41,7 +41,7 @@ def main():
         "--output-dir",
         type=str,
         default="models",
-        help="Directory to save model checkpoints (default: homeowrk/arithmetic_llm/models)"
+        help="Directory to save model checkpoints (default: homeowrk/core/models)"
     )
 
     # Training configuration

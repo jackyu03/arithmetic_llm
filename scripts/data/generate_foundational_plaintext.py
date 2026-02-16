@@ -8,7 +8,7 @@ import random
 import tempfile
 from typing import List, Tuple
 
-from .corpus_generator import CorpusGenerator
+from core.data.corpus import CorpusGenerator
 
 
 def _normalize_line(text: str) -> str:

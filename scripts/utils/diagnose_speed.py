@@ -3,8 +3,8 @@
 
 import torch
 import time
-from .transformer_model import ArithmeticTransformer
-from .arithmetic_tokenizer import ArithmeticBPETokenizer
+from core.model.transformer import ArithmeticTransformer
+from core.data.tokenizer import ArithmeticBPETokenizer
 
 print("=" * 60)
 print("TRAINING SPEED DIAGNOSTIC")
