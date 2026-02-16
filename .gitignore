@@ -61,3 +61,14 @@ cdk.out/
 /pretrained_models
 /results
 /trained_models
+
+
+# Generated Artifacts
+/data/
+/models/
+/analysis/
+/evaluation_results/
+tokens.csv
+training_log.json
+training_summary.json
+*.log
