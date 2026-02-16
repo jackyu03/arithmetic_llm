@@ -1,9 +1,9 @@
 [tool.poetry]
-name = "stat359_su25"
+name = "arithmetic_llm"
 version = "0.1.0"
 description = ""
 package-mode = false
-authors = ["Your Name <you@example.com>"]
+authors = ["Jack Yu & Jingyu Huo"]
 readme = "README.md"
 
 [tool.poetry.dependencies]
