@@ -2,9 +2,9 @@
 name = "arithmetic_llm"
 version = "0.1.0"
 description = ""
-package-mode = false
 authors = ["Jack Yu & Jingyu Huo"]
 readme = "README.md"
+packages = [{include = "core"}, {include = "scripts"}]
 
 [tool.poetry.dependencies]
 python = "^3.10"

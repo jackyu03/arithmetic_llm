@@ -425,7 +425,7 @@ python scripts/train/grpo.py \
 Evaluate the trained model on a test set of arithmetic expressions.
 
 ```bash
-python run_evaluation.py \
+python scripts/eval/evaluate.py \
   --model-path models/instruction_YYYYMMDD_HHMMSS/best_model.pt \
   --tokenizer-path data/tokenizer \
   --num-samples 1000 \
