@@ -5,7 +5,7 @@ import torch
 from dataclasses import dataclass, asdict
 from typing import Optional, Any, Dict
 
-from .lora_config import LoRAConfig
+from core.model.lora.config import LoRAConfig
 
 
 @dataclass
