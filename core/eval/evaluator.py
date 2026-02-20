@@ -254,9 +254,15 @@ class ModelEvaluator:
         num_range: Tuple[int, int] = (1, 20),
         output_dir: Optional[str] = None,
         batch_size: int = 32,
-        max_gen_length: int = 256
+        max_gen_length: int = 256,
+        temperature: float = 0.3,
+        top_k: int = 50,
+        top_p: float = 0.9,
     ) -> Dict[str, float]:
         """Evaluate model on test set.
+        
+        Use temperature=0 (greedy) or low temperature (e.g. 0.3) to reduce
+        "dropped" digits in thinking (e.g. model emitting newline instead of "+8").
         
         Args:
             num_samples: Number of test expressions to generate
@@ -265,6 +271,9 @@ class ModelEvaluator:
             output_dir: Optional directory to save evaluation results
             batch_size: Batch size for inference (default: 32)
             max_gen_length: Maximum generation length in tokens (default: 256)
+            temperature: Sampling temperature; 0 = greedy (recommended for eval)
+            top_k: Top-k sampling; 0 = disabled
+            top_p: Nucleus sampling threshold
             
         Returns:
             Dictionary with accuracy metrics:
@@ -315,7 +324,13 @@ class ModelEvaluator:
             batch_prompts = [f"Evaluate: {expr} <think>" for expr in batch_expressions]
             
             # Generate solutions for batch
-            batch_generated_texts = self._generate_batch(batch_prompts, max_length=max_gen_length)
+            batch_generated_texts = self._generate_batch(
+                batch_prompts,
+                max_length=max_gen_length,
+                temperature=temperature,
+                top_k=top_k,
+                top_p=top_p,
+            )
             
             # Process batch results
             for i, (expression, ground_truth, generated_text) in enumerate(
@@ -365,12 +380,22 @@ class ModelEvaluator:
         
         return metrics
     
-    def _generate_solution(self, prompt: str, max_length: int = 256) -> str:
+    def _generate_solution(
+        self,
+        prompt: str,
+        max_length: int = 256,
+        temperature: float = 0.3,
+        top_k: int = 50,
+        top_p: float = 0.9,
+    ) -> str:
         """Generate solution for a given prompt.
         
         Args:
             prompt: Input prompt text
             max_length: Maximum generation length
+            temperature: Sampling temperature (0 = greedy, reduces dropped digits)
+            top_k: Top-k sampling; 0 = disabled
+            top_p: Nucleus sampling threshold
             
         Returns:
             Generated text
@@ -384,14 +409,14 @@ class ModelEvaluator:
         
         input_tensor = torch.tensor([input_ids], dtype=torch.long).to(self.device)
         
-        # Generate
+        # Generate (lower temperature reduces "dropping" numbers in steps)
         with torch.no_grad():
             generated_ids = self.model.generate(
                 input_tensor,
                 max_length=max_length,
-                temperature=0.8,
-                top_k=50,
-                top_p=0.9,
+                temperature=temperature,
+                top_k=top_k,
+                top_p=top_p,
                 eos_token_id=eos_token_id
             )
         
@@ -400,12 +425,22 @@ class ModelEvaluator:
         
         return generated_text
     
-    def _generate_batch(self, prompts: List[str], max_length: int = 256) -> List[str]:
+    def _generate_batch(
+        self,
+        prompts: List[str],
+        max_length: int = 256,
+        temperature: float = 0.3,
+        top_k: int = 50,
+        top_p: float = 0.9,
+    ) -> List[str]:
         """Generate solutions for a batch of prompts.
         
         Args:
             prompts: List of input prompt texts
             max_length: Maximum generation length
+            temperature: Sampling temperature (0 = greedy)
+            top_k: Top-k sampling; 0 = disabled
+            top_p: Nucleus sampling threshold
             
         Returns:
             List of generated texts
@@ -438,14 +473,14 @@ class ModelEvaluator:
         input_tensor = torch.tensor(padded_input_ids, dtype=torch.long).to(self.device)
         attention_mask = torch.tensor(attention_masks, dtype=torch.float).to(self.device)
         
-        # Generate for batch
+        # Generate for batch (lower temperature reduces dropped digits in steps)
         with torch.no_grad():
             generated_ids = self.model.generate(
                 input_tensor,
                 max_length=max_length,
-                temperature=0.8,
-                top_k=50,
-                top_p=0.9,
+                temperature=temperature,
+                top_k=top_k,
+                top_p=top_p,
                 eos_token_id=eos_token_id,
                 attention_mask=attention_mask
             )

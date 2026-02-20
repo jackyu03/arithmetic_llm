@@ -84,6 +84,27 @@ def main():
         help="Maximum generation length in tokens (default: 512)"
     )
     
+    parser.add_argument(
+        "--temperature",
+        type=float,
+        default=0.0,
+        help="Sampling temperature; 0 = greedy (recommended to reduce dropped digits, default: 0)"
+    )
+    
+    parser.add_argument(
+        "--top-k",
+        type=int,
+        default=0,
+        help="Top-k sampling; 0 = disabled (default: 0 with greedy)"
+    )
+    
+    parser.add_argument(
+        "--top-p",
+        type=float,
+        default=1.0,
+        help="Nucleus sampling threshold; 1.0 = disabled (default: 1.0)"
+    )
+    
     args = parser.parse_args()
     
     # Determine device
@@ -110,6 +131,8 @@ def main():
     print(f"  Number range: {args.num_range[0]} to {args.num_range[1]}")
     print(f"  Batch size: {args.batch_size}")
     print(f"  Max generation length: {args.max_gen_length}")
+    print(f"  Temperature: {args.temperature} (0 = greedy)")
+    print(f"  Top-k: {args.top_k}, Top-p: {args.top_p}")
     print(f"  Output directory: {args.output_dir}")
     print("=" * 60 + "\n")
     
@@ -132,7 +155,10 @@ def main():
             num_range=tuple(args.num_range),
             output_dir=args.output_dir,
             batch_size=args.batch_size,
-            max_gen_length=args.max_gen_length
+            max_gen_length=args.max_gen_length,
+            temperature=args.temperature,
+            top_k=args.top_k,
+            top_p=args.top_p,
         )
         
         # Display results

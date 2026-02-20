@@ -27,7 +27,11 @@ langchain = "^0.3.26"
 langchain-ollama = "^0.3.3"
 umap-learn = "^0.5.7"
 plotly = "^6.2.0"
+wandb = {version = "^0.18.0", optional = true}
 
+
+[tool.poetry.extras]
+wandb = ["wandb"]
 
 [build-system]
 requires = ["poetry-core"]

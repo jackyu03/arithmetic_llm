@@ -22,6 +22,7 @@ class TrainingConfig:
         eval_every: Evaluate model every N steps
         device: Device for training ('cuda', 'mps', or 'cpu')
         lora_config: Optional LoRA configuration
+        use_wandb: Whether to log metrics to Weights & Biases
     """
     
     learning_rate: float = 1e-4
@@ -36,6 +37,7 @@ class TrainingConfig:
         else "mps" if torch.backends.mps.is_available() 
         else "cpu"
     )
+    use_wandb: bool = False
     lora_config: Optional[LoRAConfig] = None
     
     def validate(self) -> None:

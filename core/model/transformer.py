@@ -14,6 +14,56 @@ from core.model.lora.config import LoRAConfig
 from core.model.lora.layer import LoRALayer
 
 
+def _rotate_half(x: torch.Tensor) -> torch.Tensor:
+    """Rotate half for RoPE: for each pair (x_{2i}, x_{2i+1}) return (-x_{2i+1}, x_{2i})."""
+    last_dim = x.shape[-1]
+    x1 = x[..., 0::2]   # even indices
+    x2 = x[..., 1::2]   # odd indices
+    return torch.stack([-x2, x1], dim=-1).flatten(-2)
+
+
+def _apply_rotary_emb(
+    q: torch.Tensor,
+    k: torch.Tensor,
+    cos: torch.Tensor,
+    sin: torch.Tensor,
+) -> Tuple[torch.Tensor, torch.Tensor]:
+    """Apply rotary position embeddings to query and key tensors.
+    
+    q, k: (batch_size, nhead, seq_length, head_dim)
+    cos, sin: (seq_length, head_dim)
+    """
+    q_embed = (q * cos) + (_rotate_half(q) * sin)
+    k_embed = (k * cos) + (_rotate_half(k) * sin)
+    return q_embed, k_embed
+
+
+def _compute_rope_cos_sin(
+    seq_length: int,
+    head_dim: int,
+    device: torch.device,
+    dtype: torch.dtype,
+    base: float = 10000.0,
+) -> Tuple[torch.Tensor, torch.Tensor]:
+    """Compute cos and sin for RoPE.
+    
+    Returns:
+        cos, sin each of shape (seq_length, head_dim)
+    """
+    inv_freq = 1.0 / (
+        base ** (torch.arange(0, head_dim, 2, device=device, dtype=torch.float32) / head_dim)
+    )
+    inv_freq = inv_freq.to(dtype)
+    position = torch.arange(seq_length, device=device, dtype=inv_freq.dtype)
+    angle = torch.outer(position, inv_freq)  # (seq_length, head_dim/2)
+    cos = angle.cos()
+    sin = angle.sin()
+    # Duplicate for pairs: (seq_length, head_dim)
+    cos = cos.repeat_interleave(2, dim=-1)
+    sin = sin.repeat_interleave(2, dim=-1)
+    return cos, sin
+
+
 class ArithmeticTransformer(nn.Module):
     """Transformer model for arithmetic reasoning.
     
@@ -57,14 +107,8 @@ class ArithmeticTransformer(nn.Module):
         self.dropout = dropout
         self.max_seq_length = max_seq_length
         
-        # Token embeddings
+        # Token embeddings (position encoding is RoPE applied in attention layers)
         self.token_embedding = nn.Embedding(vocab_size, d_model)
-        
-        # Positional encoding
-        self.position_embedding = nn.Embedding(max_seq_length, d_model)
-        self.register_buffer(
-            "position_ids", torch.arange(max_seq_length).expand((1, -1))
-        )
         
         # Dropout for embeddings
         self.embedding_dropout = nn.Dropout(dropout)
@@ -91,7 +135,6 @@ class ArithmeticTransformer(nn.Module):
         """Initialize model weights."""
         # Initialize embeddings
         nn.init.normal_(self.token_embedding.weight, mean=0.0, std=0.02)
-        nn.init.normal_(self.position_embedding.weight, mean=0.0, std=0.02)
         
         # Initialize linear layers
         for module in self.modules():
@@ -135,13 +178,8 @@ class ArithmeticTransformer(nn.Module):
         batch_size, seq_length = input_ids.shape
         device = input_ids.device
         
-        # Get embeddings
-        token_embeds = self.token_embedding(input_ids)
-        position_ids = self.position_ids[:, :seq_length]
-        position_embeds = self.position_embedding(position_ids)
-        
-        # Combine token and position embeddings
-        hidden_states = token_embeds + position_embeds
+        # Get token embeddings (RoPE is applied inside attention layers)
+        hidden_states = self.token_embedding(input_ids)
         hidden_states = self.embedding_dropout(hidden_states)
         
         # Create causal mask
@@ -397,8 +435,9 @@ class ArithmeticTransformer(nn.Module):
                 # Get logits for the last token
                 next_token_logits = logits[:, -1, :]
                 
-                # Apply temperature
-                if temperature != 1.0:
+                # Apply temperature (skip when greedy to avoid div-by-zero)
+                use_greedy = temperature is not None and temperature <= 1e-7
+                if not use_greedy and temperature != 1.0:
                     next_token_logits = next_token_logits / temperature
                 
                 # Apply top-k filtering
@@ -423,9 +462,13 @@ class ArithmeticTransformer(nn.Module):
                     )
                     next_token_logits[indices_to_remove] = float('-inf')
                 
-                # Sample from the filtered distribution
-                probs = F.softmax(next_token_logits, dim=-1)
-                next_token = torch.multinomial(probs, num_samples=1).squeeze(1)
+                # Sample or greedy: use argmax when temperature is 0 to avoid
+                # "dropping" digits (e.g. model sampling newline instead of "8")
+                if use_greedy:
+                    next_token = next_token_logits.argmax(dim=-1)
+                else:
+                    probs = F.softmax(next_token_logits, dim=-1)
+                    next_token = torch.multinomial(probs, num_samples=1).squeeze(1)
                 
                 # Handle EOS token
                 if eos_token_id is not None:
@@ -569,6 +612,15 @@ class MultiHeadAttention(nn.Module):
         q = q.view(batch_size, seq_length, self.nhead, self.head_dim).transpose(1, 2)
         k = k.view(batch_size, seq_length, self.nhead, self.head_dim).transpose(1, 2)
         v = v.view(batch_size, seq_length, self.nhead, self.head_dim).transpose(1, 2)
+        
+        # Apply rotary position embeddings to Q and K
+        cos, sin = _compute_rope_cos_sin(
+            seq_length, self.head_dim, q.device, q.dtype
+        )
+        # cos/sin (seq_length, head_dim) -> (1, 1, seq_length, head_dim) for broadcasting
+        cos = cos.unsqueeze(0).unsqueeze(0)
+        sin = sin.unsqueeze(0).unsqueeze(0)
+        q, k = _apply_rotary_emb(q, k, cos, sin)
         
         # Compute attention scores
         attention_scores = torch.matmul(q, k.transpose(-2, -1))

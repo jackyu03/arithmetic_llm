@@ -17,6 +17,11 @@ from core.data.tokenizer import ArithmeticBPETokenizer
 from core.data.loader import create_dataloaders
 from core.training.config import TrainingConfig
 
+try:
+    import wandb
+except ImportError:
+    wandb = None
+
 
 def get_linear_schedule_with_warmup(
     optimizer: torch.optim.Optimizer,
@@ -223,6 +228,20 @@ def train_epoch(
                 'lr': scheduler.get_last_lr()[0]
             })
         
+        # Log step-level metrics to wandb
+        if (
+            wandb is not None
+            and wandb.run is not None
+            and getattr(config, "use_wandb", False)
+        ):
+            wandb.log(
+                {
+                    "train/loss": loss.item(),
+                    "train/learning_rate": scheduler.get_last_lr()[0],
+                },
+                step=global_step,
+            )
+        
         # Save checkpoint at intervals
         if global_step % config.save_every == 0:
             checkpoint_path = save_checkpoint(
@@ -317,6 +336,16 @@ def train_foundational_model(
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
     output_dir = os.path.join(output_dir, f"foundational_{timestamp}")
     os.makedirs(output_dir, exist_ok=True)
+    
+    # Initialize wandb if requested
+    if getattr(config, "use_wandb", False) and wandb is not None:
+        wandb.init(
+            project="arithmetic-llm",
+            name=f"foundational_{timestamp}",
+            config=config.to_dict(),
+        )
+        if model_config is not None:
+            wandb.config.update({"model": model_config}, allow_val_change=True)
     
     print(f"Training output directory: {output_dir}")
     print(f"Configuration: {config.to_dict()}")
@@ -434,6 +463,21 @@ def train_foundational_model(
             'val_loss': val_loss,
             'learning_rate': scheduler.get_last_lr()[0]
         })
+        
+        # Log epoch metrics to wandb
+        if (
+            getattr(config, "use_wandb", False)
+            and wandb is not None
+            and wandb.run is not None
+        ):
+            wandb.log(
+                {
+                    "epoch/train_loss": train_loss,
+                    "epoch/val_loss": val_loss,
+                    "epoch/learning_rate": scheduler.get_last_lr()[0],
+                },
+                step=global_step,
+            )
         
         # Save best model
         if val_loss < best_val_loss:

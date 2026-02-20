@@ -100,6 +100,12 @@ def main():
         help="Device for training: 'cuda', 'mps', 'cpu', or 'auto' (default: auto)"
     )
 
+    parser.add_argument(
+        "--wandb",
+        action="store_true",
+        help="Enable Weights & Biases logging for training metrics"
+    )
+
     # LoRA configuration
     parser.add_argument(
         "--lora-rank",
@@ -148,6 +154,7 @@ def main():
     if args.config:
         print(f"Loading training configuration from: {args.config}")
         config = TrainingConfig.from_json(args.config)
+        config.use_wandb = getattr(config, "use_wandb", False) or args.wandb
     else:
         if args.device == "auto":
             import torch
@@ -166,7 +173,8 @@ def main():
             warmup_steps=args.warmup_steps,
             gradient_clip=args.gradient_clip,
             save_every=args.save_every,
-            device=device
+            device=device,
+            use_wandb=args.wandb,
         )
 
     target_modules = [
@@ -207,6 +215,7 @@ def main():
     print(f"  Gradient clip: {config.gradient_clip}")
     print(f"  Save every: {config.save_every} steps")
     print(f"  Device: {config.device}")
+    print(f"  Wandb: {getattr(config, 'use_wandb', False)}")
     print("=" * 60 + "\n")
 
     # Train model
