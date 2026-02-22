@@ -318,9 +318,7 @@ def train_foundational_model(
     # Validate configuration
     config.validate()
     
-    # Create unique output directory with timestamp (including microseconds for uniqueness)
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
-    output_dir = os.path.join(output_dir, f"foundational_{timestamp}")
+    # Create output directory
     os.makedirs(output_dir, exist_ok=True)
     
     print(f"Training output directory: {output_dir}")

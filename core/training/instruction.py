@@ -47,9 +47,7 @@ def train_instruction_model(
     # Validate configuration
     config.validate()
     
-    # Create unique output directory with timestamp (including microseconds for uniqueness)
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
-    output_dir = os.path.join(output_dir, f"instruction_{timestamp}")
+    # Create output directory
     os.makedirs(output_dir, exist_ok=True)
     
     print(f"Fine-tuning output directory: {output_dir}")

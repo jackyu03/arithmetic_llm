@@ -76,9 +76,7 @@ def train_instruction_model_lora(
     lora_config.validate()
     config.lora_config = lora_config
 
-    # Create unique output directory with timestamp
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
-    output_dir = os.path.join(output_dir, f"instruction_lora_{timestamp}")
+    # Create output directory
     os.makedirs(output_dir, exist_ok=True)
 
     print(f"LoRA fine-tuning output directory: {output_dir}")
