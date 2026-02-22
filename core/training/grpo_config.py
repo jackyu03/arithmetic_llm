@@ -53,6 +53,14 @@ class GRPOConfig:
 
     gradient_accumulation_steps: int = 1
     log_every: int = 50
+    
+    # Ablation Study Toggles
+    reward_format: bool = False
+    reward_format_weight: float = 0.2
+    reward_equation_steps: bool = False
+    reward_step_weight: float = 0.1
+    reward_length_penalty: bool = False
+    reward_length_penalty_weight: float = 0.001
 
     def validate(self) -> None:
         """Validate configuration parameters.
@@ -154,6 +162,9 @@ class GRPOConfig:
             raise ValueError(
                 f"log_every must be positive, got {self.log_every}"
             )
+        
+        if self.reward_format_weight < 0 or self.reward_step_weight < 0 or self.reward_length_penalty_weight < 0:
+            raise ValueError("Reward weights must be non-negative.")
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert configuration to dictionary."""
@@ -175,4 +186,10 @@ class GRPOConfig:
             "max_gen_length": self.max_gen_length,
             "gradient_accumulation_steps": self.gradient_accumulation_steps,
             "log_every": self.log_every,
+            "reward_format": self.reward_format,
+            "reward_format_weight": self.reward_format_weight,
+            "reward_equation_steps": self.reward_equation_steps,
+            "reward_step_weight": self.reward_step_weight,
+            "reward_length_penalty": self.reward_length_penalty,
+            "reward_length_penalty_weight": self.reward_length_penalty_weight,
         }
