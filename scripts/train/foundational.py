@@ -78,10 +78,11 @@ def main():
     )
     
     parser.add_argument(
-        "--save-every",
+        "--save-every", "--save-steps",
         type=int,
-        default=1000,
-        help="Save checkpoint every N steps (default: 1000)"
+        default=25000,
+        help="Save checkpoint every N steps (default: 25000)",
+        dest="save_every"
     )
     
     parser.add_argument(

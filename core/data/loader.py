@@ -2,13 +2,75 @@
 
 import json
 import torch
-from torch.utils.data import Dataset, DataLoader
-from typing import List, Tuple
+import numpy as np
+from torch.utils.data import Dataset, DataLoader, Sampler, WeightedRandomSampler
+from typing import List, Tuple, Optional, Iterator
 from core.data.tokenizer import (
     ArithmeticBPETokenizer
 )
 from core.eval.evaluator import eval_expression
 
+class CurriculumSampler(Sampler):
+    """
+    Samples elements progressively from easier to harder based on a curriculum schedule.
+    """
+    def __init__(self, dataset_complexities: List[float], batch_size: int, total_steps: int = 10000):
+        self.complexities = np.array(dataset_complexities)
+        self.num_samples = len(self.complexities)
+        self.batch_size = batch_size
+        self.total_steps = total_steps
+        self.current_step = 0
+        
+        # Normalize complexities to 0-1 for easier weighting
+        min_c = self.complexities.min()
+        max_c = self.complexities.max()
+        if max_c > min_c:
+            self.norm_complexities = (self.complexities - min_c) / (max_c - min_c)
+        else:
+            self.norm_complexities = np.zeros_like(self.complexities)
+            
+    def step(self, steps: int = 1):
+        """Advance the curriculum step."""
+        self.current_step = min(self.total_steps, self.current_step + steps)
+        
+    def __iter__(self) -> Iterator[int]:
+        # Progress from 0.0 (start) to 1.0 (end of curriculum)
+        progress = min(1.0, self.current_step / max(1, self.total_steps))
+        
+        # We want probability to favor low complexity early on.
+        # Let target complexity roughly match progress.
+        # We use a gaussian-like weight centered around the current progress target.
+        # At progress=1.0, we can transition to uniform sampling.
+        if progress >= 1.0:
+            weights = np.ones(self.num_samples)
+        else:
+            # Target complexity grows from 0 to 1
+            target_c = progress
+            # Spread of the sampling window (starts narrow, gets wider)
+            sigma = 0.1 + (progress * 0.4) 
+            
+            # Distance from target complexity
+            dist = np.abs(self.norm_complexities - target_c)
+            # Gaussian weights
+            weights = np.exp(-(dist**2) / (2 * sigma**2))
+            
+            # Ensure minimum probability so no sample is mathematically impossible to pick
+            weights = np.clip(weights, a_min=0.01, a_max=None)
+            
+        weights = weights / weights.sum()
+        
+        # Generate indices for a full pseudo-epoch
+        indices = np.random.choice(
+            self.num_samples, 
+            size=self.num_samples, 
+            replace=True, 
+            p=weights
+        ).tolist()
+        
+        return iter(indices)
+
+    def __len__(self) -> int:
+        return self.num_samples
 
 class ArithmeticDataset(Dataset):
     """Dataset for arithmetic expressions and evaluations.
@@ -38,6 +100,7 @@ class ArithmeticDataset(Dataset):
         self.mode = mode
         self.entries = []
         self.prompt_lengths = []  # Store prompt lengths for instruction mode
+        self.complexities = [] # Store complexity scores for Curriculum Learning
         
         # Load corpus
         self._load_corpus()
@@ -117,6 +180,7 @@ class ArithmeticDataset(Dataset):
                     # Foundational: raw text per line
                     self.entries.append(line)
                     self.prompt_lengths.append(0)
+                    self.complexities.append(float(len(line))) # Use raw text length as proxy
                     continue
 
                 try:
@@ -142,6 +206,7 @@ class ArithmeticDataset(Dataset):
 
                     self.entries.append(text)
                     self.prompt_lengths.append(prompt_length)
+                    self.complexities.append(float(len(text))) # Total sequence length as complexity proxy
 
                 except json.JSONDecodeError:
                     # Skip malformed JSON lines in instruction mode
@@ -256,9 +321,11 @@ def create_dataloaders(
     max_length: int = 512,
     train_split: float = 0.9,
     shuffle: bool = True,
-    num_workers: int = 2,  # Changed from 0 to 2 for parallel loading
-    mode: str = "foundational"
-) -> Tuple[DataLoader, DataLoader]:
+    num_workers: int = 4,  # Increased default for parallelism
+    mode: str = "foundational",
+    use_curriculum: bool = False,
+    curriculum_steps: int = 10000
+) -> Tuple[DataLoader, DataLoader, Optional[CurriculumSampler]]:
     """Create train and validation dataloaders.
     
     Args:
@@ -270,9 +337,11 @@ def create_dataloaders(
         shuffle: Whether to shuffle training data
         num_workers: Number of worker processes for data loading
         mode: Training mode - "foundational" or "instruction"
+        use_curriculum: If True, uses the CurriculumSampler for the training set.
+        curriculum_steps: Total steps over which curriculum anneals to uniform random.
         
     Returns:
-        Tuple of (train_dataloader, val_dataloader)
+        Tuple of (train_dataloader, val_dataloader, train_sampler)
     """
     # Create full dataset
     full_dataset = ArithmeticDataset(
@@ -283,24 +352,22 @@ def create_dataloaders(
     )
     
     # Split into train and validation
-    # Ensure at least 1 sample in each split if dataset is large enough
     dataset_size = len(full_dataset)
     
     if dataset_size == 0:
         raise ValueError("Dataset is empty")
     
     if dataset_size == 1:
-        # If only 1 sample, use it for both train and val
         train_size = 1
         val_size = 1
         train_dataset = full_dataset
         val_dataset = full_dataset
+        # For a dataset of 1, split makes lengths tricky, so manually extract complexities
+        train_complexities = full_dataset.complexities
     else:
-        # Ensure at least 1 sample in validation set
         train_size = max(1, int(dataset_size * train_split))
         val_size = max(1, dataset_size - train_size)
         
-        # Adjust train_size if needed to ensure both sets have at least 1 sample
         if train_size + val_size > dataset_size:
             train_size = dataset_size - 1
             val_size = 1
@@ -309,6 +376,8 @@ def create_dataloaders(
             full_dataset,
             [train_size, val_size]
         )
+        # Extract complexities using Subset indices to ensure mapping is correct
+        train_complexities = [full_dataset.complexities[idx] for idx in train_dataset.indices]
     
     # Get pad token ID
     pad_token_id = tokenizer.token2id.get('<pad>', 0)
@@ -317,11 +386,22 @@ def create_dataloaders(
     def collate_with_pad(batch):
         return collate_fn(batch, pad_token_id=pad_token_id, mode=mode)
     
-    # Create dataloaders
+    # Setup sampler
+    train_sampler = None
+    if use_curriculum and shuffle:
+        train_sampler = CurriculumSampler(
+            dataset_complexities=train_complexities,
+            batch_size=batch_size,
+            total_steps=curriculum_steps
+        )
+        # DataLoader shouldn't use shuffle=True if it has a custom sampler
+        shuffle = False
+        
     train_dataloader = DataLoader(
         train_dataset,
         batch_size=batch_size,
         shuffle=shuffle,
+        sampler=train_sampler,
         num_workers=num_workers,
         collate_fn=collate_with_pad
     )
@@ -334,6 +414,6 @@ def create_dataloaders(
         collate_fn=collate_with_pad
     )
     
-    return train_dataloader, val_dataloader
+    return train_dataloader, val_dataloader, train_sampler
 
 
