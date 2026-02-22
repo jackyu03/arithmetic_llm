@@ -397,11 +397,11 @@ def evaluate(
     num_batches = 0
     
     with torch.no_grad():
-        for input_ids, attention_mask, labels in val_dataloader:
-            # Move to device
-            input_ids = input_ids.to(config.device)
-            attention_mask = attention_mask.to(config.device)
-            labels = labels.to(config.device)
+        for batch in val_dataloader:
+            # Batch may be (input_ids, attention_mask, labels) or 6-tuple when contrastive
+            input_ids = batch[0].to(config.device)
+            attention_mask = batch[1].to(config.device)
+            labels = batch[2].to(config.device)
             
             # Prepare inputs and targets
             inputs = input_ids[:, :-1]
