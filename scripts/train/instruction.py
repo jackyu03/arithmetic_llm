@@ -99,6 +99,12 @@ def main():
         help="Device for training: 'cuda', 'mps', 'cpu', or 'auto' (default: auto)"
     )
     
+    parser.add_argument(
+        "--disable-curriculum",
+        action="store_true",
+        help="Disable curriculum learning sampling (anneals from easy to hard by default)"
+    )
+    
     # Model configuration
     parser.add_argument(
         "--model-config",
@@ -131,7 +137,8 @@ def main():
             warmup_steps=args.warmup_steps,
             gradient_clip=args.gradient_clip,
             save_every=args.save_every,
-            device=device
+            device=device,
+            use_curriculum=not args.disable_curriculum
         )
     
     # Load model configuration if provided

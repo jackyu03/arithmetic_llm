@@ -32,6 +32,24 @@ For a given arithmetic query, the model will sample a group of $G$ diverse reaso
 
 By comparing the $G$ responses against each other using these reward signals, the network isolates its own logical fallacies.
 
+#### 2.1 Design of the Ablation Study
+
+An ablation study systematically disables components of a system to understand their individual contribution to overall performance. To analyze the exact causal relationship between these granular rewards and the emergence of robust logic versus "nonsense", we added `--reward-format`, `--reward-length-penalty`, and `--reward-equation-steps` toggles into the `scripts/train/grpo.py` CLI to support the following configurations:
+
+| Configuration | Baseline (Binary) | Format Reward | Length Penalty | Step-wise Verify | Expected Insight |
+|---------------|:---:|:---:|:---:|:---:|---|
+| **Baseline** | ✅ | ❌ | ❌ | ❌ | Establishes base accuracy & verbosity. |
+| **Experiment 1** | ✅ | ✅ | ❌ | ❌ | Does early structural reinforcement speed up convergence? |
+| **Experiment 2** | ✅ | ✅ | ✅ | ❌ | Does length penalty reduce generation time without degrading accuracy? |
+| **Experiment 3** | ✅ | ✅ | ❌ | ✅ | Does step-verification eliminate mathematically invalid "hallucinated" proofs? |
+| **Experiment 4 (Full)** | ✅ | ✅ | ✅ | ✅ | The theoretical optimal setup. |
+
+##### Evaluation Metrics for Analysis
+During evaluation, we will track not only traditional metrics but also:
+1. **Average Generation Length**: Used to prove the length penalty's effectiveness.
+2. **Formatting Failure Rate**: Tracks how often the model fails to produce the `<think>` block.
+3. **Logic Deviation Rate**: The proportion of generated solutions where the final result is correct, but an intermediate math step was technically false (a critical measure of robust vs rote memorization).
+
 ### 3. Checkpointing Flexibility
 *Status: Completed*
 
