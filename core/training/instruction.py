@@ -19,6 +19,7 @@ from core.training.foundational import (
     save_checkpoint,
     load_checkpoint,
     train_epoch,
+    train_epoch_with_contrastive,
     evaluate,
 )
 
@@ -105,6 +106,7 @@ def train_instruction_model(
     max_seq_length = model_config.get('max_seq_length', 512)
 
     # Create dataloaders
+    use_contrastive = getattr(config, "use_contrastive", False)
     print("Creating dataloaders...")
     train_dataloader, val_dataloader = create_dataloaders(
         corpus_path=instruction_corpus_path,
@@ -114,10 +116,13 @@ def train_instruction_model(
         train_split=0.9,
         shuffle=True,
         num_workers=0,
-        mode="instruction"
+        mode="instruction",
+        use_contrastive=use_contrastive,
     )
     print(f"Training batches: {len(train_dataloader)}")
     print(f"Validation batches: {len(val_dataloader)}")
+    if use_contrastive:
+        print("Contrastive learning enabled (correct vs wrong completion)")
     
     model = ArithmeticTransformer(**model_config)
     
@@ -175,18 +180,31 @@ def train_instruction_model(
         print(f"Epoch {epoch + 1}/{config.num_epochs}")
         print(f"{'='*60}")
         
-        # Train for one epoch
-        train_loss, global_step = train_epoch(
-            model=model,
-            train_dataloader=train_dataloader,
-            optimizer=optimizer,
-            scheduler=scheduler,
-            config=config,
-            epoch=epoch + 1,
-            global_step=global_step,
-            output_dir=output_dir,
-            tokenizer_vocab_size=vocab_size
-        )
+        # Train for one epoch (with or without contrastive loss)
+        if use_contrastive:
+            train_loss, global_step = train_epoch_with_contrastive(
+                model=model,
+                train_dataloader=train_dataloader,
+                optimizer=optimizer,
+                scheduler=scheduler,
+                config=config,
+                epoch=epoch + 1,
+                global_step=global_step,
+                output_dir=output_dir,
+                tokenizer_vocab_size=vocab_size,
+            )
+        else:
+            train_loss, global_step = train_epoch(
+                model=model,
+                train_dataloader=train_dataloader,
+                optimizer=optimizer,
+                scheduler=scheduler,
+                config=config,
+                epoch=epoch + 1,
+                global_step=global_step,
+                output_dir=output_dir,
+                tokenizer_vocab_size=vocab_size
+            )
         
         # Evaluate on validation set
         print("\nEvaluating on validation set...")

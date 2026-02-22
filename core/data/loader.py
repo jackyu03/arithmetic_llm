@@ -3,11 +3,12 @@
 import json
 import torch
 from torch.utils.data import Dataset, DataLoader
-from typing import List, Tuple
+from typing import List, Tuple, Optional
 from core.data.tokenizer import (
     ArithmeticBPETokenizer
 )
 from core.eval.evaluator import eval_expression
+from core.training.contrastive import make_wrong_solution
 
 
 class ArithmeticDataset(Dataset):
@@ -22,7 +23,8 @@ class ArithmeticDataset(Dataset):
         corpus_path: str,
         tokenizer: ArithmeticBPETokenizer,
         max_length: int = 512,
-        mode: str = "foundational"
+        mode: str = "foundational",
+        use_contrastive: bool = False,
     ):
         """Initialize dataset.
         
@@ -31,13 +33,18 @@ class ArithmeticDataset(Dataset):
             tokenizer: Trained tokenizer instance
             max_length: Maximum sequence length
             mode: Training mode - "foundational" or "instruction"
+            use_contrastive: If True (instruction only), __getitem__ returns wrong_* for contrastive learning
         """
         self.corpus_path = corpus_path
         self.tokenizer = tokenizer
         self.max_length = max_length
         self.mode = mode
+        self.use_contrastive = use_contrastive and (mode == "instruction")
         self.entries = []
         self.prompt_lengths = []  # Store prompt lengths for instruction mode
+        self.prompts: List[str] = []
+        self.solutions: List[str] = []
+        self.answers: List[int] = []
         
         # Load corpus
         self._load_corpus()
@@ -142,6 +149,15 @@ class ArithmeticDataset(Dataset):
 
                     self.entries.append(text)
                     self.prompt_lengths.append(prompt_length)
+                    try:
+                        ans = entry['answer']
+                        self.prompts.append(prompt)
+                        self.solutions.append(entry['solution'])
+                        self.answers.append(int(ans) if ans != "ERROR" else 0)
+                    except (TypeError, ValueError, KeyError):
+                        self.prompts.append(prompt)
+                        self.solutions.append(entry['solution'])
+                        self.answers.append(0)
 
                 except json.JSONDecodeError:
                     # Skip malformed JSON lines in instruction mode
@@ -181,28 +197,49 @@ class ArithmeticDataset(Dataset):
         # Create attention mask (1 for real tokens, 0 for padding)
         attention_mask = [1] * len(token_ids)
         
-        return {
+        out = {
             'input_ids': token_ids,
             'attention_mask': attention_mask,
             'length': len(token_ids),
             'prompt_length': prompt_length
         }
+        
+        if self.use_contrastive and idx < len(self.prompts):
+            prompt = self.prompts[idx]
+            solution = self.solutions[idx]
+            answer = self.answers[idx]
+            wrong_solution = make_wrong_solution(solution, answer)
+            full_wrong = prompt + ' ' + wrong_solution
+            wrong_ids = self.tokenizer.encode(full_wrong, add_special_tokens=True)
+            if len(wrong_ids) > self.max_length:
+                wrong_ids = wrong_ids[:self.max_length]
+            wrong_plen = prompt_length  # same as correct (BOS + prompt)
+            wrong_labels = [-100] * wrong_plen + wrong_ids[wrong_plen + 1:]
+            out['wrong_input_ids'] = wrong_ids
+            out['wrong_attention_mask'] = [1] * len(wrong_ids)
+            out['wrong_length'] = len(wrong_ids)
+            out['wrong_labels'] = wrong_labels
+        return out
 
 
 def collate_fn(
     batch: List[dict],
     pad_token_id: int = 0,
-    mode: str = "foundational"
-) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    mode: str = "foundational",
+    use_contrastive: bool = False,
+) -> Tuple:
     """Collate function for batching with padding.
     
     Args:
         batch: List of dictionaries from dataset
         pad_token_id: Token ID to use for padding
         mode: Training mode - "foundational" or "instruction"
+        use_contrastive: If True and batch has wrong_*, return wrong tensors too
         
     Returns:
-        Tuple of (input_ids, attention_mask, labels) tensors
+        Tuple of (input_ids, attention_mask, labels) tensors;
+        if use_contrastive and batch has wrong_*, then
+        (input_ids, attention_mask, labels, wrong_input_ids, wrong_attention_mask, wrong_labels)
         For instruction mode, labels have -100 for prompt tokens (ignored in loss)
     """
     # Find maximum length in batch
@@ -242,11 +279,37 @@ def collate_fn(
         labels.append(label_ids)
     
     # Convert to tensors
-    input_ids = torch.tensor(input_ids, dtype=torch.long)
-    attention_masks = torch.tensor(attention_masks, dtype=torch.long)
-    labels = torch.tensor(labels, dtype=torch.long)
+    input_ids_t = torch.tensor(input_ids, dtype=torch.long)
+    attention_masks_t = torch.tensor(attention_masks, dtype=torch.long)
+    labels_t = torch.tensor(labels, dtype=torch.long)
     
-    return input_ids, attention_masks, labels
+    if use_contrastive and "wrong_input_ids" in batch[0]:
+        max_wrong = max(item["wrong_length"] for item in batch)
+        wrong_input_ids = []
+        wrong_attention_masks = []
+        wrong_labels = []
+        for item in batch:
+            wlen = item["wrong_length"]
+            wrong_input_ids.append(
+                item["wrong_input_ids"] + [pad_token_id] * (max_wrong - wlen)
+            )
+            wrong_attention_masks.append(
+                item["wrong_attention_mask"] + [0] * (max_wrong - wlen)
+            )
+            wl = item["wrong_labels"] + [-100] * (max_wrong - wlen)
+            wrong_labels.append(wl)
+        wrong_input_ids_t = torch.tensor(wrong_input_ids, dtype=torch.long)
+        wrong_attention_masks_t = torch.tensor(wrong_attention_masks, dtype=torch.long)
+        wrong_labels_t = torch.tensor(wrong_labels, dtype=torch.long)
+        return (
+            input_ids_t,
+            attention_masks_t,
+            labels_t,
+            wrong_input_ids_t,
+            wrong_attention_masks_t,
+            wrong_labels_t,
+        )
+    return input_ids_t, attention_masks_t, labels_t
 
 
 def create_dataloaders(
@@ -257,7 +320,8 @@ def create_dataloaders(
     train_split: float = 0.9,
     shuffle: bool = True,
     num_workers: int = 2,  # Changed from 0 to 2 for parallel loading
-    mode: str = "foundational"
+    mode: str = "foundational",
+    use_contrastive: bool = False,
 ) -> Tuple[DataLoader, DataLoader]:
     """Create train and validation dataloaders.
     
@@ -279,7 +343,8 @@ def create_dataloaders(
         corpus_path=corpus_path,
         tokenizer=tokenizer,
         max_length=max_length,
-        mode=mode
+        mode=mode,
+        use_contrastive=use_contrastive,
     )
     
     # Split into train and validation
@@ -313,9 +378,14 @@ def create_dataloaders(
     # Get pad token ID
     pad_token_id = tokenizer.token2id.get('<pad>', 0)
     
-    # Create collate function with pad token ID and mode
+    # Create collate function with pad token ID, mode, and contrastive flag
     def collate_with_pad(batch):
-        return collate_fn(batch, pad_token_id=pad_token_id, mode=mode)
+        return collate_fn(
+            batch,
+            pad_token_id=pad_token_id,
+            mode=mode,
+            use_contrastive=use_contrastive,
+        )
     
     # Create dataloaders
     train_dataloader = DataLoader(

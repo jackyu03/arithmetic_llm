@@ -160,7 +160,7 @@ class InteractiveArithmeticSolver:
             generated_ids = self.model.generate(
                 input_tensor,
                 max_length=256,
-                temperature=0.8,
+                temperature=0.8, # TODO: make this a parameter
                 top_k=50,
                 top_p=0.9,
                 eos_token_id=eos_token_id

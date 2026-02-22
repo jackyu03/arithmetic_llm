@@ -23,6 +23,9 @@ class TrainingConfig:
         device: Device for training ('cuda', 'mps', or 'cpu')
         lora_config: Optional LoRA configuration
         use_wandb: Whether to log metrics to Weights & Biases
+        use_contrastive: Whether to use contrastive loss (correct vs wrong completion)
+        contrastive_weight: Weight for contrastive loss term
+        contrastive_temperature: Temperature for contrastive margin
     """
     
     learning_rate: float = 1e-4
@@ -38,6 +41,9 @@ class TrainingConfig:
         else "cpu"
     )
     use_wandb: bool = False
+    use_contrastive: bool = False
+    contrastive_weight: float = 0.1
+    contrastive_temperature: float = 0.1
     lora_config: Optional[LoRAConfig] = None
     
     def validate(self) -> None:
@@ -130,6 +136,9 @@ class TrainingConfig:
         if "lora_config" in config_dict and config_dict["lora_config"] is not None:
             lora_config = LoRAConfig(**config_dict["lora_config"])
         config_dict["lora_config"] = lora_config
+        config_dict.setdefault("use_contrastive", False)
+        config_dict.setdefault("contrastive_weight", 0.1)
+        config_dict.setdefault("contrastive_temperature", 0.1)
 
         config = cls(**config_dict)
         

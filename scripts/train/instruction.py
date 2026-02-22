@@ -104,6 +104,26 @@ def main():
         help="Enable Weights & Biases logging for training metrics"
     )
     
+    parser.add_argument(
+        "--contrastive",
+        action="store_true",
+        help="Enable contrastive learning (correct vs wrong completion)"
+    )
+    
+    parser.add_argument(
+        "--contrastive-weight",
+        type=float,
+        default=0.1,
+        help="Weight for contrastive loss (default: 0.1)"
+    )
+    
+    parser.add_argument(
+        "--contrastive-temperature",
+        type=float,
+        default=0.1,
+        help="Temperature for contrastive margin (default: 0.1)"
+    )
+    
     # Model configuration
     parser.add_argument(
         "--model-config",
@@ -118,6 +138,10 @@ def main():
         print(f"Loading training configuration from: {args.config}")
         config = TrainingConfig.from_json(args.config)
         config.use_wandb = getattr(config, "use_wandb", False) or args.wandb
+        if args.contrastive:
+            config.use_contrastive = True
+            config.contrastive_weight = getattr(config, "contrastive_weight", 0.1) or args.contrastive_weight
+            config.contrastive_temperature = getattr(config, "contrastive_temperature", 0.1) or args.contrastive_temperature
     else:
         # Determine device
         if args.device == "auto":
@@ -139,6 +163,9 @@ def main():
             save_every=args.save_every,
             device=device,
             use_wandb=args.wandb,
+            use_contrastive=args.contrastive,
+            contrastive_weight=args.contrastive_weight,
+            contrastive_temperature=args.contrastive_temperature,
         )
     
     # Load model configuration if provided
@@ -165,6 +192,10 @@ def main():
     print(f"  Save every: {config.save_every} steps")
     print(f"  Device: {config.device}")
     print(f"  Wandb: {getattr(config, 'use_wandb', False)}")
+    print(f"  Contrastive: {getattr(config, 'use_contrastive', False)}")
+    if getattr(config, 'use_contrastive', False):
+        print(f"    contrastive_weight: {getattr(config, 'contrastive_weight', 0.1)}")
+        print(f"    contrastive_temperature: {getattr(config, 'contrastive_temperature', 0.1)}")
     print("=" * 60 + "\n")
     
     # Train model

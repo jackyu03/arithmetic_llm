@@ -16,6 +16,7 @@ from core.model.transformer import ArithmeticTransformer
 from core.data.tokenizer import ArithmeticBPETokenizer
 from core.data.loader import create_dataloaders
 from core.training.config import TrainingConfig
+from core.training.contrastive import compute_contrastive_loss
 
 try:
     import wandb
@@ -258,6 +259,120 @@ def train_epoch(
             )
             print(f"\nCheckpoint saved at step {global_step}: {checkpoint_path}")
     
+    avg_loss = (total_loss / num_batches).item() if num_batches > 0 else 0.0
+    return avg_loss, global_step
+
+
+def train_epoch_with_contrastive(
+    model: ArithmeticTransformer,
+    train_dataloader: torch.utils.data.DataLoader,
+    optimizer: torch.optim.Optimizer,
+    scheduler: torch.optim.lr_scheduler.LambdaLR,
+    config: TrainingConfig,
+    epoch: int,
+    global_step: int,
+    output_dir: str,
+    tokenizer_vocab_size: int,
+) -> Tuple[float, int]:
+    """Train one epoch with CE loss + contrastive loss (correct vs wrong completion)."""
+    model.train()
+    total_loss = 0.0
+    num_batches = 0
+    contrastive_weight = getattr(config, "contrastive_weight", 0.1)
+    contrastive_temperature = getattr(config, "contrastive_temperature", 0.1)
+
+    progress_bar = tqdm(train_dataloader, desc=f"Epoch {epoch}")
+    for batch_idx, batch in enumerate(progress_bar):
+        if len(batch) == 6:
+            (input_ids, attention_mask, labels,
+             wrong_input_ids, wrong_attention_mask, wrong_labels) = batch
+        else:
+            input_ids, attention_mask, labels = batch
+            wrong_input_ids = wrong_attention_mask = wrong_labels = None
+
+        input_ids = input_ids.to(config.device)
+        attention_mask = attention_mask.to(config.device)
+        labels = labels.to(config.device)
+
+        inputs = input_ids[:, :-1]
+        targets = labels[:, 1:]
+        input_attention_mask = attention_mask[:, :-1]
+
+        logits = model(inputs, input_attention_mask)
+        ce_loss = nn.functional.cross_entropy(
+            logits.reshape(-1, logits.size(-1)),
+            targets.reshape(-1),
+            ignore_index=-100,
+        )
+
+        if wrong_input_ids is not None and contrastive_weight > 0:
+            wrong_input_ids = wrong_input_ids.to(config.device)
+            wrong_attention_mask = wrong_attention_mask.to(config.device)
+            wrong_labels = wrong_labels.to(config.device)
+            wrong_inputs = wrong_input_ids[:, :-1]
+            wrong_targets = wrong_labels[:, 1:]
+            wrong_attn = wrong_attention_mask[:, :-1]
+            logits_wrong = model(wrong_inputs, wrong_attn)
+            completion_mask_correct = (targets != -100)
+            completion_mask_wrong = (wrong_targets != -100)
+            cl_loss = compute_contrastive_loss(
+                logits_correct=logits,
+                labels_correct=targets,
+                logits_wrong=logits_wrong,
+                labels_wrong=wrong_targets,
+                completion_mask_correct=completion_mask_correct,
+                completion_mask_wrong=completion_mask_wrong,
+                temperature=contrastive_temperature,
+            )
+            loss = ce_loss + contrastive_weight * cl_loss
+        else:
+            loss = ce_loss
+
+        optimizer.zero_grad()
+        loss.backward()
+        torch.nn.utils.clip_grad_norm_(model.parameters(), config.gradient_clip)
+        optimizer.step()
+        scheduler.step()
+
+        total_loss += loss.detach()
+        num_batches += 1
+        global_step += 1
+
+        if batch_idx % 10 == 0:
+            progress_bar.set_postfix({
+                "loss": loss.item(),
+                "avg_loss": (total_loss / num_batches).item(),
+                "lr": scheduler.get_last_lr()[0],
+            })
+
+        if (
+            wandb is not None
+            and wandb.run is not None
+            and getattr(config, "use_wandb", False)
+        ):
+            wandb.log(
+                {
+                    "train/loss": loss.item(),
+                    "train/learning_rate": scheduler.get_last_lr()[0],
+                },
+                step=global_step,
+            )
+
+        if global_step % config.save_every == 0:
+            checkpoint_path = save_checkpoint(
+                model=model,
+                optimizer=optimizer,
+                scheduler=scheduler,
+                epoch=epoch,
+                step=global_step,
+                loss=loss.item(),
+                config=config,
+                tokenizer_vocab_size=tokenizer_vocab_size,
+                output_dir=output_dir,
+                is_final=False,
+            )
+            print(f"\nCheckpoint saved at step {global_step}: {checkpoint_path}")
+
     avg_loss = (total_loss / num_batches).item() if num_batches > 0 else 0.0
     return avg_loss, global_step
 
