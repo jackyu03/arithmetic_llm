@@ -61,6 +61,15 @@ def _build_parser() -> argparse.ArgumentParser:
         default=None,
         help="Optional sub-batch size for candidate processing"
     )
+    
+    # Ablation Study Toggles
+    parser.add_argument("--reward-format", action="store_true", help="Enable structural format reward")
+    parser.add_argument("--reward-format-weight", type=float, default=0.2, help="Weight for format reward")
+    parser.add_argument("--reward-equation-steps", action="store_true", help="Enable step-wise math verification reward")
+    parser.add_argument("--reward-step-weight", type=float, default=0.1, help="Reward/Penalty per step")
+    parser.add_argument("--reward-length-penalty", action="store_true", help="Enable Occam's razor length penalty")
+    parser.add_argument("--reward-length-penalty-weight", type=float, default=0.001, help="Penalty per character/token length")
+    
     parser.add_argument(
         "--filter-invalid-instruction",
         action=argparse.BooleanOptionalAction,
@@ -106,6 +115,12 @@ def main() -> None:
         max_gen_length=args.max_gen_length,
         gradient_accumulation_steps=args.gradient_accumulation_steps,
         log_every=args.log_every,
+        reward_format=args.reward_format,
+        reward_format_weight=args.reward_format_weight,
+        reward_equation_steps=args.reward_equation_steps,
+        reward_step_weight=args.reward_step_weight,
+        reward_length_penalty=args.reward_length_penalty,
+        reward_length_penalty_weight=args.reward_length_penalty_weight,
     )
     config.validate()
 
