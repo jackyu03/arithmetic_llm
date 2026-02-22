@@ -42,7 +42,14 @@ class GRPOTrainer:
         self.tokenizer = tokenizer
         self.optimizer = None
         self.scheduler = None
-        self.verifier = ArithmeticVerifier()
+        self.verifier = ArithmeticVerifier(
+            reward_format=config.reward_format,
+            format_weight=config.reward_format_weight,
+            reward_length_penalty=config.reward_length_penalty,
+            length_penalty_weight=config.reward_length_penalty_weight,
+            reward_equation_steps=config.reward_equation_steps,
+            step_weight=config.reward_step_weight
+        )
         self.use_mixed_precision = use_mixed_precision
         self.candidate_sub_batch_size = candidate_sub_batch_size
         device_type = "cuda" if self.config.device == "cuda" else "cpu"

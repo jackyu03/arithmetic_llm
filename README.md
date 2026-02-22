@@ -177,6 +177,14 @@ python scripts/train/grpo.py \
 #6.1 eval GRPO model
 python scripts/eval/evaluate.py   --model-path models/grpo/grpo_YYYYMMMDD_HHMMSS/final_modelpt    --tokenizer-path data/tokenizer   --max-gen-length 512   --batch-size 1   --num-samples 1000
 
+# 7 Visualize Attention Heatmaps
+python scripts/evaluate/visualize_attention.py \
+  --checkpoint models/instruction_YYYYMMDD_HHMMSS/best_model.pt \
+  --model-config models/instruction_YYYYMMDD_HHMMSS/model_config.json \
+  --prompt "2 + 3 = <think>" \
+  --output-dir attention_maps \
+  --layer -1
+
 ```
 
 ## Detailed Usage

@@ -87,10 +87,11 @@ def main():
     )
 
     parser.add_argument(
-        "--save-every",
+        "--save-every", "--save-steps",
         type=int,
-        default=500,
-        help="Save checkpoint every N steps (default: 500)"
+        default=1000,
+        help="Save checkpoint every N steps (default: 1000)",
+        dest="save_every"
     )
 
     parser.add_argument(
@@ -135,6 +136,12 @@ def main():
         help="Save merged model after training"
     )
 
+    parser.add_argument(
+        "--disable-curriculum",
+        action="store_true",
+        help="Disable curriculum learning sampling (anneals from easy to hard by default)"
+    )
+
     # Model configuration
     parser.add_argument(
         "--model-config",
@@ -166,7 +173,8 @@ def main():
             warmup_steps=args.warmup_steps,
             gradient_clip=args.gradient_clip,
             save_every=args.save_every,
-            device=device
+            device=device,
+            use_curriculum=not args.disable_curriculum
         )
 
     target_modules = [

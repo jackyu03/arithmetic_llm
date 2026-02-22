@@ -91,7 +91,7 @@ def train_instruction_model(
 
     # Create dataloaders
     print("Creating dataloaders...")
-    train_dataloader, val_dataloader = create_dataloaders(
+    train_dataloader, val_dataloader, train_sampler = create_dataloaders(
         corpus_path=instruction_corpus_path,
         tokenizer=tokenizer,
         batch_size=config.batch_size,
@@ -99,7 +99,9 @@ def train_instruction_model(
         train_split=0.9,
         shuffle=True,
         num_workers=0,
-        mode="instruction"
+        mode="instruction",
+        use_curriculum=getattr(config, 'use_curriculum', True),
+        curriculum_steps=getattr(config, 'curriculum_steps', 10000)
     )
     print(f"Training batches: {len(train_dataloader)}")
     print(f"Validation batches: {len(val_dataloader)}")
@@ -170,7 +172,8 @@ def train_instruction_model(
             epoch=epoch + 1,
             global_step=global_step,
             output_dir=output_dir,
-            tokenizer_vocab_size=vocab_size
+            tokenizer_vocab_size=vocab_size,
+            train_sampler=train_sampler
         )
         
         # Evaluate on validation set

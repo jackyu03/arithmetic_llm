@@ -10,7 +10,7 @@ import torch
 import torch.nn as nn
 from datetime import datetime
 from tqdm import tqdm
-from typing import Optional, Dict, Tuple
+from typing import Optional, Dict, Tuple, Any
 
 from core.model.transformer import ArithmeticTransformer
 from core.data.tokenizer import ArithmeticBPETokenizer
@@ -153,7 +153,8 @@ def train_epoch(
     epoch: int,
     global_step: int,
     output_dir: str,
-    tokenizer_vocab_size: int
+    tokenizer_vocab_size: int,
+    train_sampler: Optional[Any] = None
 ) -> Tuple[float, int]:
     """Train model for one epoch.
     
@@ -167,6 +168,7 @@ def train_epoch(
         global_step: Current global step
         output_dir: Directory to save checkpoints
         tokenizer_vocab_size: Size of tokenizer vocabulary
+        train_sampler: Optional curriculum sampler to step
         
     Returns:
         Tuple of (average_loss, final_global_step)
@@ -209,6 +211,9 @@ def train_epoch(
         # Optimizer step
         optimizer.step()
         scheduler.step()
+        
+        if train_sampler is not None:
+            train_sampler.step()
         
         # Update statistics (accumulate on GPU, sync less frequently)
         total_loss += loss.detach()  # Keep on GPU
@@ -347,15 +352,17 @@ def train_foundational_model(
 
     # Create dataloaders
     print("Creating dataloaders...")
-    train_dataloader, val_dataloader = create_dataloaders(
+    train_dataloader, val_dataloader, train_sampler = create_dataloaders(
         corpus_path=corpus_path,
         tokenizer=tokenizer,
         batch_size=config.batch_size,
         max_length=max_seq_length,
         train_split=0.9,
         shuffle=True,
-        num_workers=0,
-        mode="foundational"
+        num_workers=4,
+        mode="foundational",
+        use_curriculum=getattr(config, 'use_curriculum', False),
+        curriculum_steps=getattr(config, 'curriculum_steps', 10000)
     )
     print(f"Training batches: {len(train_dataloader)}")
     print(f"Validation batches: {len(val_dataloader)}")
@@ -415,7 +422,8 @@ def train_foundational_model(
             epoch=epoch + 1,
             global_step=global_step,
             output_dir=output_dir,
-            tokenizer_vocab_size=vocab_size
+            tokenizer_vocab_size=vocab_size,
+            train_sampler=train_sampler
         )
         
         # Evaluate on validation set

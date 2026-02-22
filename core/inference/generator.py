@@ -10,8 +10,8 @@ class ExpressionGenerator:
     
 
     def generate(self, current_depth=0):
-        # If we reached max depth or a random chance, return a number
-        if current_depth >= self.max_depth or random.random() < 0.3:
+        # If we reached max depth or a random chance (only if depth > 0), return a number
+        if current_depth >= self.max_depth or (current_depth > 0 and random.random() < 0.3):
             return str(random.randint(*self.num_range))
         
         # Otherwise, expand into an operation

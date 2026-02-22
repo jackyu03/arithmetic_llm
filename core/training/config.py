@@ -36,6 +36,8 @@ class TrainingConfig:
         else "mps" if torch.backends.mps.is_available() 
         else "cpu"
     )
+    use_curriculum: bool = True
+    curriculum_steps: int = 10000
     lora_config: Optional[LoRAConfig] = None
     
     def validate(self) -> None:
