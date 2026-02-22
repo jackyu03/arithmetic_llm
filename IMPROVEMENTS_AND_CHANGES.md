@@ -17,6 +17,27 @@ Instead of manually guessing the `num-samples` required to hit this threshold, w
 The generation scripts were upgraded to utilize multiprocessing (`concurrent.futures`), achieving dramatic speedups for million-scale token generation.
 Furthermore, a custom `CurriculumSampler` was built into the `core/data/loader.py`, allowing the PyTorch `DataLoader` to dynamically implement Curriculum Learning by annealing the sampling distribution from simple to complex curricula over the course of training.
 
+**AST Generation Robustness:**
+To ensure the curriculum is meaningful from step 0, we identified and patched an edge case in the underlying `ExpressionGenerator` Abstract Syntax Tree (AST) logic where zero-depth recursions could randomly terminate into single integers, forcing the model to occasionally train on trivial echoes (e.g. evaluating `14` into `14`). 
+
+*Before Logic (Allowed Trivial Echoes):*
+```python
+def generate(self, current_depth=0):
+    # If we reached max depth or a random chance, return a number
+    if current_depth >= self.max_depth or random.random() < 0.3:
+        return str(random.randint(*self.num_range))
+    # ...
+```
+
+*After Logic (Enforces $\ge 1$ Operation):*
+```python
+def generate(self, current_depth=0):
+    # Require current_depth > 0 before allowing a random short-circuit
+    if current_depth >= self.max_depth or (current_depth > 0 and random.random() < 0.3):
+        return str(random.randint(*self.num_range))
+    # ...
+```
+
 ### 2. Group Relative Policy Optimization (GRPO)
 *Status: Planned*
 
