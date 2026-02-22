@@ -72,3 +72,4 @@ tokens.csv
 training_log.json
 training_summary.json
 *.log
+/logs
