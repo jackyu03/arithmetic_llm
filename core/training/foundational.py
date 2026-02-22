@@ -359,7 +359,7 @@ def train_foundational_model(
         max_length=max_seq_length,
         train_split=0.9,
         shuffle=True,
-        num_workers=4,
+        num_workers=getattr(config, 'num_workers', 4),
         mode="foundational",
         use_curriculum=getattr(config, 'use_curriculum', False),
         curriculum_steps=getattr(config, 'curriculum_steps', 10000)

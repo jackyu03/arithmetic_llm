@@ -126,7 +126,7 @@ def train_instruction_model_lora(
         max_length=max_seq_length,
         train_split=0.9,
         shuffle=True,
-        num_workers=0,
+        num_workers=getattr(config, 'num_workers', 4),
         mode="instruction",
         use_curriculum=getattr(config, 'use_curriculum', True),
         curriculum_steps=getattr(config, 'curriculum_steps', 10000)

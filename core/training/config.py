@@ -38,6 +38,7 @@ class TrainingConfig:
     )
     use_curriculum: bool = True
     curriculum_steps: int = 10000
+    num_workers: int = 4
     lora_config: Optional[LoRAConfig] = None
     
     def validate(self) -> None:
@@ -79,6 +80,11 @@ class TrainingConfig:
         if self.eval_every <= 0:
             raise ValueError(
                 f"eval_every must be positive, got {self.eval_every}"
+            )
+            
+        if self.num_workers < 0:
+            raise ValueError(
+                f"num_workers must be non-negative, got {self.num_workers}"
             )
         
         if self.device not in ["cuda", "mps", "cpu"]:

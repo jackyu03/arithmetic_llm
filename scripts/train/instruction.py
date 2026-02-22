@@ -105,6 +105,13 @@ def main():
         help="Disable curriculum learning sampling (anneals from easy to hard by default)"
     )
     
+    parser.add_argument(
+        "--num-workers",
+        type=int,
+        default=4,
+        help="Number of dataloader worker threads (default: 4)"
+    )
+    
     # Model configuration
     parser.add_argument(
         "--model-config",
@@ -138,7 +145,8 @@ def main():
             gradient_clip=args.gradient_clip,
             save_every=args.save_every,
             device=device,
-            use_curriculum=not args.disable_curriculum
+            use_curriculum=not args.disable_curriculum,
+            num_workers=args.num_workers
         )
     
     # Load model configuration if provided
