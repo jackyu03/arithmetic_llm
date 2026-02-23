@@ -387,6 +387,10 @@ def train_foundational_model(
     # Calculate total training steps
     total_steps = len(train_dataloader) * config.num_epochs
     
+    # Sync curriculum sampler timescale with the actual total steps
+    if train_sampler is not None:
+        train_sampler.total_steps = total_steps
+    
     # Initialize scheduler
     scheduler = get_linear_schedule_with_warmup(
         optimizer=optimizer,
