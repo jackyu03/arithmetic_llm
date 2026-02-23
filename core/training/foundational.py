@@ -325,8 +325,10 @@ def train_epoch_with_contrastive(
                 temperature=contrastive_temperature,
             )
             loss = ce_loss + contrastive_weight * cl_loss
+            cl_loss_item = cl_loss.detach().item()
         else:
             loss = ce_loss
+            cl_loss_item = 0.0
 
         optimizer.zero_grad()
         loss.backward()
@@ -339,24 +341,27 @@ def train_epoch_with_contrastive(
         global_step += 1
 
         if batch_idx % 10 == 0:
-            progress_bar.set_postfix({
+            postfix = {
                 "loss": loss.item(),
                 "avg_loss": (total_loss / num_batches).item(),
                 "lr": scheduler.get_last_lr()[0],
-            })
+            }
+            if wrong_input_ids is not None and contrastive_weight > 0:
+                postfix["cl"] = round(cl_loss_item, 4)
+            progress_bar.set_postfix(postfix)
 
         if (
             wandb is not None
             and wandb.run is not None
             and getattr(config, "use_wandb", False)
         ):
-            wandb.log(
-                {
-                    "train/loss": loss.item(),
-                    "train/learning_rate": scheduler.get_last_lr()[0],
-                },
-                step=global_step,
-            )
+            log_dict = {
+                "train/loss": loss.item(),
+                "train/learning_rate": scheduler.get_last_lr()[0],
+            }
+            if wrong_input_ids is not None and contrastive_weight > 0:
+                log_dict["train/contrastive_loss"] = cl_loss_item
+            wandb.log(log_dict, step=global_step)
 
         if global_step % config.save_every == 0:
             checkpoint_path = save_checkpoint(

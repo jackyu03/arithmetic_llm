@@ -208,13 +208,15 @@ class ArithmeticDataset(Dataset):
             prompt = self.prompts[idx]
             solution = self.solutions[idx]
             answer = self.answers[idx]
-            wrong_solution = make_wrong_solution(solution, answer)
+            wrong_solution = make_wrong_solution(solution, answer, seed=idx)
             full_wrong = prompt + ' ' + wrong_solution
             wrong_ids = self.tokenizer.encode(full_wrong, add_special_tokens=True)
             if len(wrong_ids) > self.max_length:
                 wrong_ids = wrong_ids[:self.max_length]
             wrong_plen = prompt_length  # same as correct (BOS + prompt)
-            wrong_labels = [-100] * wrong_plen + wrong_ids[wrong_plen + 1:]
+            # Same convention as correct: labels[i] = token at position i (masked for prompt);
+            # training uses targets = labels[:, 1:], so target at position t is labels[t+1] = ids[t+1]
+            wrong_labels = [-100] * wrong_plen + wrong_ids[wrong_plen:]
             out['wrong_input_ids'] = wrong_ids
             out['wrong_attention_mask'] = [1] * len(wrong_ids)
             out['wrong_length'] = len(wrong_ids)

@@ -42,8 +42,8 @@ class TrainingConfig:
     )
     use_wandb: bool = False
     use_contrastive: bool = False
-    contrastive_weight: float = 0.1
-    contrastive_temperature: float = 0.1
+    contrastive_weight: float = 0.3
+    contrastive_temperature: float = 0.05
     lora_config: Optional[LoRAConfig] = None
     
     def validate(self) -> None:
@@ -137,8 +137,8 @@ class TrainingConfig:
             lora_config = LoRAConfig(**config_dict["lora_config"])
         config_dict["lora_config"] = lora_config
         config_dict.setdefault("use_contrastive", False)
-        config_dict.setdefault("contrastive_weight", 0.1)
-        config_dict.setdefault("contrastive_temperature", 0.1)
+        config_dict.setdefault("contrastive_weight", 0.3)
+        config_dict.setdefault("contrastive_temperature", 0.05)
 
         config = cls(**config_dict)
         

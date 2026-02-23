@@ -113,15 +113,15 @@ def main():
     parser.add_argument(
         "--contrastive-weight",
         type=float,
-        default=0.1,
-        help="Weight for contrastive loss (default: 0.1)"
+        default=0.3,
+        help="Weight for contrastive loss (default: 0.3)"
     )
     
     parser.add_argument(
         "--contrastive-temperature",
         type=float,
-        default=0.1,
-        help="Temperature for contrastive margin (default: 0.1)"
+        default=0.05,
+        help="Temperature for contrastive margin (default: 0.05, lower = stronger push)"
     )
     
     # Model configuration
