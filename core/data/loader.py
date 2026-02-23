@@ -194,8 +194,8 @@ class ArithmeticDataset(Dataset):
                     # Strip leading '<think>' from target if present
                     target = target.strip()
                     if target.startswith('<think>'):
-                        # Keep the <think> tag for consistency
-                        pass
+                        # Remove it so we don't duplicate it with the prompt's <think>
+                        target = target[len('<think>'):].lstrip()
 
                     # Concatenate prompt and target for training
                     text = prompt + ' ' + target
