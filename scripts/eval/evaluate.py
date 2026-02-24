@@ -105,6 +105,12 @@ def main():
         help="Nucleus sampling threshold; 1.0 = disabled (default: 1.0)"
     )
     
+    parser.add_argument(
+        "--constrain-decoding",
+        action="store_true",
+        help="Forbid newline/Step/</think> until '= number' in each step (reduces dropped steps)"
+    )
+    
     args = parser.parse_args()
     
     # Determine device
@@ -133,6 +139,7 @@ def main():
     print(f"  Max generation length: {args.max_gen_length}")
     print(f"  Temperature: {args.temperature} (0 = greedy)")
     print(f"  Top-k: {args.top_k}, Top-p: {args.top_p}")
+    print(f"  Constrain decoding: {args.constrain_decoding}")
     print(f"  Output directory: {args.output_dir}")
     print("=" * 60 + "\n")
     
@@ -159,6 +166,7 @@ def main():
             temperature=args.temperature,
             top_k=args.top_k,
             top_p=args.top_p,
+            use_constrained_decoding=args.constrain_decoding,
         )
         
         # Display results
@@ -170,6 +178,7 @@ def main():
         print(f"Parseable Samples: {metrics['parseable_samples']}")
         print(f"\nExact Match Accuracy: {metrics['exact_match_accuracy']:.2f}%")
         print(f"Parse Success Rate: {metrics['parse_success_rate']:.2f}%")
+        print(f"Expression Now Consistent: {metrics.get('expression_now_consistent_rate', 0):.2f}%")
         print(f"Avg Generation Length: {metrics['avg_generation_length']:.2f} tokens")
         print("=" * 60)
         

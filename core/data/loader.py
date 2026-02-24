@@ -198,7 +198,7 @@ class ArithmeticDataset(Dataset):
         attention_mask = [1] * len(token_ids)
         
         out = {
-            'input_ids': token_ids,
+            'input_ids': token_ids, # prompt + solution
             'attention_mask': attention_mask,
             'length': len(token_ids),
             'prompt_length': prompt_length

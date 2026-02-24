@@ -8,7 +8,7 @@ import math
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from typing import Optional, Dict, Tuple, Iterator, Any
+from typing import Optional, Dict, Tuple, Iterator, Any, Callable, List, Set
 
 from core.model.lora.config import LoRAConfig
 from core.model.lora.layer import LoRALayer
@@ -400,7 +400,8 @@ class ArithmeticTransformer(nn.Module):
         top_k: int = 0,
         top_p: float = 0.9,
         eos_token_id: Optional[int] = None,
-        attention_mask: Optional[torch.Tensor] = None
+        attention_mask: Optional[torch.Tensor] = None,
+        forbid_token_ids_fn: Optional[Callable[[torch.Tensor], List[Set[int]]]] = None,
     ) -> torch.Tensor:
         """Generate text autoregressively with temperature sampling.
         
@@ -412,6 +413,8 @@ class ArithmeticTransformer(nn.Module):
             top_p: Nucleus sampling threshold (only sample from top p probability mass)
             eos_token_id: Optional end-of-sequence token ID to stop generation
             attention_mask: Optional padding mask of shape (batch_size, seq_length)
+            forbid_token_ids_fn: Optional; (generated) -> list of sets of token IDs to
+                mask to -inf per batch item (e.g. avoid newline/Step mid-step).
         
         Returns:
             Generated token IDs of shape (batch_size, generated_length)
@@ -461,6 +464,15 @@ class ArithmeticTransformer(nn.Module):
                         dim=1, index=sorted_indices, src=sorted_indices_to_remove
                     )
                     next_token_logits[indices_to_remove] = float('-inf')
+                
+                # Optional format constraint: forbid tokens that would break step (e.g. newline before "= result")
+                if forbid_token_ids_fn is not None:
+                    forbidden_list = forbid_token_ids_fn(generated)
+                    for b in range(batch_size):
+                        if b < len(forbidden_list) and forbidden_list[b]:
+                            for tid in forbidden_list[b]:
+                                if 0 <= tid < next_token_logits.shape[1]:
+                                    next_token_logits[b, tid] = float("-inf")
                 
                 # Sample or greedy: use argmax when temperature is 0 to avoid
                 # "dropping" digits (e.g. model sampling newline instead of "8")
