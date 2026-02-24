@@ -78,6 +78,11 @@ class ArithmeticDigitTokenizer:
     def load(self, save_dir: str) -> None:
         import os
         filepath = os.path.join(save_dir, 'tokenizer_digit.pkl')
+        if not os.path.exists(filepath):
+            self.train("dummy_path")
+            self.save(save_dir)
+            return
+            
         with open(filepath, 'rb') as f:
             state = pickle.load(f)
         
