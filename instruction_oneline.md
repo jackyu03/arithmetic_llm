@@ -37,7 +37,7 @@ python scripts/eval/evaluate.py --model-path models/foundational_20260220_103758
 python scripts/train/instruction.py --instruction-corpus-path data/instruction_corpus.txt --output-dir models/ --tokenizer-path data/tokenizer --foundational-checkpoint models/foundational_20260220_103758_473709/best_model.pt --num-epochs 10 --contrastive --contrastive-weight 0.3 --contrastive-temperature 0.05 --wandb
 
 # 4.1 Evaluate the model
-python scripts/eval/evaluate.py --model-path models/instruction_20260220_122251_979267/best_model.pt --tokenizer-path data/tokenizer --max-gen-length 512 --batch-size 1 --num-samples 1000
+python scripts/eval/evaluate.py --model-path models/instruction_20260220_122251_979267/best_model.pt --tokenizer-path data/tokenizer --max-gen-length 512 --batch-size 1 --num-samples 1000 --constrain-decoding
 
 # 5 Fine-tune with LoRA adapters (optional)
 python scripts/train/instruction_lora.py --instruction-corpus-path data/instruction_corpus.txt --output-dir models/ --tokenizer-path data/tokenizer --foundational-checkpoint models/foundational_20260220_103758_473709/best_model.pt --num-epochs 10 --lora-rank 8 --lora-alpha 16 --lora-target-modules attention --save-merged-model
