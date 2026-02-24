@@ -483,7 +483,8 @@ class ArithmeticTransformer(nn.Module):
                 
                 # Apply top-k filtering
                 if top_k > 0:
-                    indices_to_remove = next_token_logits < torch.topk(next_token_logits, top_k)[0][..., -1, None]
+                    k = min(top_k, next_token_logits.size(-1))
+                    indices_to_remove = next_token_logits < torch.topk(next_token_logits, k)[0][..., -1, None]
                     next_token_logits[indices_to_remove] = float('-inf')
                 
                 # Apply top-p (nucleus) filtering
