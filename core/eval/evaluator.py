@@ -391,12 +391,16 @@ class ModelEvaluator:
         input_tensor = torch.tensor([input_ids], dtype=torch.long).to(self.device)
         
         # Generate
+        is_digit = hasattr(self.tokenizer, 'scaffolding_tokens')
+        temp = 0.1 if is_digit else 0.8
+        k = 5 if is_digit else 50
+        
         with torch.no_grad():
             generated_ids = self.model.generate(
                 input_tensor,
                 max_length=max_length,
-                temperature=0.8,
-                top_k=50,
+                temperature=temp,
+                top_k=k,
                 top_p=0.9,
                 eos_token_id=eos_token_id
             )
@@ -445,12 +449,16 @@ class ModelEvaluator:
         attention_mask = torch.tensor(attention_masks, dtype=torch.float).to(self.device)
         
         # Generate for batch
+        is_digit = hasattr(self.tokenizer, 'scaffolding_tokens')
+        temp = 0.1 if is_digit else 0.8
+        k = 5 if is_digit else 50
+
         with torch.no_grad():
             generated_ids = self.model.generate(
                 input_tensor,
                 max_length=max_length,
-                temperature=0.8,
-                top_k=50,
+                temperature=temp,
+                top_k=k,
                 top_p=0.9,
                 eos_token_id=eos_token_id,
                 attention_mask=attention_mask
