@@ -11,7 +11,7 @@ from datetime import datetime
 from typing import Optional, Dict
 
 from core.model.transformer import ArithmeticTransformer
-from core.data.tokenizer import ArithmeticBPETokenizer
+from core.data.tokenizer import ArithmeticBPETokenizer, ArithmeticDigitTokenizer
 from core.data.loader import create_dataloaders
 from core.training.config import TrainingConfig
 from core.training.foundational import (
@@ -35,7 +35,8 @@ def train_instruction_model(
     foundational_checkpoint: str,
     output_dir: str,
     config: TrainingConfig,
-    model_config: Optional[Dict] = None
+    model_config: Optional[Dict] = None,
+    tokenizer_type: str = "digit"
 ) -> str:
     """Fine-tune model with instruction formatting.
     
@@ -70,8 +71,11 @@ def train_instruction_model(
     print(f"Configuration: {config.to_dict()}")
     
     # Load tokenizer
-    print("Loading tokenizer...")
-    tokenizer = ArithmeticBPETokenizer()
+    print(f"Loading {tokenizer_type} tokenizer...")
+    if tokenizer_type == "digit":
+        tokenizer = ArithmeticDigitTokenizer()
+    else:
+        tokenizer = ArithmeticBPETokenizer()
     tokenizer.load(tokenizer_path)
     vocab_size = len(tokenizer.token2id)
     print(f"Tokenizer vocabulary size: {vocab_size}")

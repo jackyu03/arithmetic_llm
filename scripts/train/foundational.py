@@ -29,6 +29,14 @@ def main():
     )
     
     parser.add_argument(
+        "--tokenizer-type",
+        type=str,
+        default="digit",
+        choices=["digit", "bpe"],
+        help="Tokenizer type to load: 'digit' or 'bpe' (default: digit)"
+    )
+    
+    parser.add_argument(
         "--output-dir",
         type=str,
         default="models",
@@ -211,7 +219,7 @@ def main():
     print("FOUNDATIONAL MODEL TRAINING")
     print("=" * 60)
     print(f"\nCorpus: {args.corpus_path}")
-    print(f"Tokenizer: {args.tokenizer_path}")
+    print(f"Tokenizer ({args.tokenizer_type}): {args.tokenizer_path}")
     print(f"Output directory: {args.output_dir}")
     print("\nTraining Configuration:")
     print(f"  Learning rate: {config.learning_rate}")
@@ -236,6 +244,7 @@ def main():
         final_checkpoint = train_foundational_model(
             corpus_path=args.corpus_path,
             tokenizer_path=args.tokenizer_path,
+            tokenizer_type=args.tokenizer_type,
             output_dir=args.output_dir,
             config=config,
             model_config=model_config

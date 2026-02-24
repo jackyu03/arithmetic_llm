@@ -9,21 +9,38 @@ from transformers.modeling_utils import no_init_weights
 from core.inference.generator import ExpressionGenerator
 from core.eval.evaluator import eval_expression
 
+# Attempt to load a tokenizer for accurate token counting
+from core.data.tokenizer import ArithmeticDigitTokenizer, ArithmeticBPETokenizer
+
 try:
     from transformers import AutoTokenizer
     _TOKENIZER = AutoTokenizer.from_pretrained("gpt2")
 except ImportError:
     _TOKENIZER = None
 
-def _count_tokens(text: str) -> int:
+# Global cache for custom tokenizers in worker processes
+_CUSTOM_TOKENIZER = None
+
+def _count_tokens(text: str, tokenizer_type: str = "digit") -> int:
     """Helper to count tokens in a string."""
+    global _CUSTOM_TOKENIZER
+    
+    if tokenizer_type == "digit":
+        if _CUSTOM_TOKENIZER is None or not isinstance(_CUSTOM_TOKENIZER, ArithmeticDigitTokenizer):
+            # We don't need the trained vocab just to count lengths with the digit tokenizer
+            # Since it literally just tokenizes by character lengths
+            _CUSTOM_TOKENIZER = ArithmeticDigitTokenizer()
+        # Just use length of string approx, ignore whitespace
+        return len(text.replace(" ", ""))
+    
     if _TOKENIZER is not None:
         # Avoid creating the attention mask/tensors for speed
         return len(_TOKENIZER.encode(text, add_special_tokens=False))
+        
     # Fallback to simple split if transformers isn't available
     return len(text.split())
 
-def _generate_chunk(chunk_size: int, max_depth: int, num_range: Tuple[int, int], invalid_rate: float) -> Tuple[List[Dict], int]:
+def _generate_chunk(chunk_size: int, max_depth: int, num_range: Tuple[int, int], invalid_rate: float, tokenizer_type: str) -> Tuple[List[Dict], int]:
     """Generates a chunk of evaluate expressions and returns the entries and their total token count."""
     generator = ExpressionGenerator(
         max_depth=max_depth,
@@ -46,7 +63,7 @@ def _generate_chunk(chunk_size: int, max_depth: int, num_range: Tuple[int, int],
         
         # Count tokens for the problem and solution combined
         text_to_count = str(entry['problem']) + " " + str(entry['solution'])
-        token_count += _count_tokens(text_to_count)
+        token_count += _count_tokens(text_to_count, tokenizer_type)
         entries.append(entry)
         
     return entries, token_count
@@ -62,7 +79,8 @@ class CorpusGenerator:
         max_depth: int = 5,
         num_range: Tuple[int, int] = (1, 20),
         invalid_rate: float = 0.1,
-        output_path: str = "corpus.txt"
+        output_path: str = "corpus.txt",
+        tokenizer_type: str = "digit"
     ):
         """
         Initialize corpus generator.
@@ -81,8 +99,9 @@ class CorpusGenerator:
         self.num_range = num_range
         self.invalid_rate = invalid_rate
         self.output_path = output_path
-
-         # Ensure at least one goal is set
+        self.tokenizer_type = tokenizer_type
+        
+        # Ensure at least one goal is set
         if self.target_tokens is None and self.num_samples is None:
             raise ValueError("Must provide either target_tokens or num_samples")
 
@@ -103,7 +122,7 @@ class CorpusGenerator:
                 # Initial fill of the worker pool
                 for _ in range(num_workers * 2):
                     active_futures.add(executor.submit(
-                        _generate_chunk, chunk_samples, self.max_depth, self.num_range, self.invalid_rate
+                        _generate_chunk, chunk_samples, self.max_depth, self.num_range, self.invalid_rate, self.tokenizer_type
                     ))
                 
                 while active_futures:
@@ -130,7 +149,7 @@ class CorpusGenerator:
                         # If we haven't met our goal, submit another job
                         if not goal_met:
                             active_futures.add(executor.submit(
-                                _generate_chunk, chunk_samples, self.max_depth, self.num_range, self.invalid_rate
+                                _generate_chunk, chunk_samples, self.max_depth, self.num_range, self.invalid_rate, self.tokenizer_type
                             ))
                         else:
                             # Cancel remaining futures if goal met

@@ -4,9 +4,9 @@ import json
 import torch
 import numpy as np
 from torch.utils.data import Dataset, DataLoader, Sampler, WeightedRandomSampler
-from typing import List, Tuple, Optional, Iterator
+from typing import List, Tuple, Optional, Iterator, Union
 from core.data.tokenizer import (
-    ArithmeticBPETokenizer
+    ArithmeticBPETokenizer, ArithmeticDigitTokenizer
 )
 from core.eval.evaluator import eval_expression
 from core.training.contrastive import make_wrong_solution
@@ -80,7 +80,7 @@ class ArithmeticDataset(Dataset):
     def __init__(
         self,
         corpus_path: str,
-        tokenizer: ArithmeticBPETokenizer,
+        tokenizer: Union[ArithmeticBPETokenizer, ArithmeticDigitTokenizer],
         max_length: int = 512,
         mode: str = "foundational",
         use_contrastive: bool = False,
@@ -378,7 +378,7 @@ def collate_fn(
 
 def create_dataloaders(
     corpus_path: str,
-    tokenizer: ArithmeticBPETokenizer,
+    tokenizer: Union[ArithmeticBPETokenizer, ArithmeticDigitTokenizer],
     batch_size: int = 32,
     max_length: int = 512,
     train_split: float = 0.9,

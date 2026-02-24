@@ -218,6 +218,7 @@ class ModelEvaluator:
         self,
         model_path: str,
         tokenizer_path: str,
+        tokenizer_type: str = "digit",
         base_checkpoint_path: Optional[str] = None,
         device: str = (
             "cuda" if torch.cuda.is_available() 
@@ -230,6 +231,7 @@ class ModelEvaluator:
         Args:
             model_path: Path to model checkpoint
             tokenizer_path: Path to tokenizer directory
+            tokenizer_type: Type of tokenizer ('digit' or 'bpe')
             device: Device for inference ('cuda', 'mps', or 'cpu')
         """
         self.device = device
@@ -237,9 +239,13 @@ class ModelEvaluator:
         self.tokenizer_path = tokenizer_path
         self.base_checkpoint_path = base_checkpoint_path
         
+        
         # Load tokenizer
-        from core.data.tokenizer import ArithmeticBPETokenizer
-        self.tokenizer = ArithmeticBPETokenizer()
+        from core.data.tokenizer import ArithmeticBPETokenizer, ArithmeticDigitTokenizer
+        if tokenizer_type == "digit":
+            self.tokenizer = ArithmeticDigitTokenizer()
+        else:
+            self.tokenizer = ArithmeticBPETokenizer()
         self.tokenizer.load(tokenizer_path)
         
         # Load model

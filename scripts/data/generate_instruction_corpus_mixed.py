@@ -14,18 +14,18 @@ def _generate_instruction_corpus(
     num_samples: int,
     target_tokens: int,
     max_depth: int,
-    num_range: Tuple[int, int],
     invalid_rate: float,
     output_path: str,
+    tokenizer_type: str = "digit",
 ) -> None:
     os.makedirs(os.path.dirname(output_path), exist_ok=True)
     generator = CorpusGenerator(
         target_tokens=target_tokens,
         num_samples=num_samples,
         max_depth=max_depth,
-        num_range=num_range,
         invalid_rate=invalid_rate,
         output_path=output_path,
+        tokenizer_type=tokenizer_type,
     )
     generator.generate_instruction_corpus(output_path)
 
@@ -51,6 +51,13 @@ def main() -> None:
     parser.add_argument("--max-depth", type=int, default=5)
     parser.add_argument("--num-range", type=int, nargs=2, default=[1, 20])
     parser.add_argument("--invalid-rate", type=float, default=0.1)
+    parser.add_argument(
+        "--tokenizer-type",
+        type=str,
+        default="digit",
+        choices=["digit", "bpe"],
+        help="Tokenizer type to use for counting target tokens (default: digit)"
+    )
     parser.add_argument(
         "--output-mixed",
         type=str,
@@ -93,6 +100,7 @@ def main() -> None:
                 num_range=num_range,
                 invalid_rate=1.0, # All errors
                 output_path=error_path,
+                tokenizer_type=args.tokenizer_type,
             )
 
         _generate_instruction_corpus(
@@ -102,6 +110,7 @@ def main() -> None:
             num_range=num_range,
             invalid_rate=0.0,
             output_path=correct_path,
+            tokenizer_type=args.tokenizer_type,
         )
 
         lines = _read_lines(correct_path)
