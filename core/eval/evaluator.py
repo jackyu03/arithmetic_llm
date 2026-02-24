@@ -317,8 +317,8 @@ class ModelEvaluator:
             batch_expressions = test_expressions[batch_start:batch_end]
             batch_answers = test_answers[batch_start:batch_end]
             
-            # Format prompts for batch
-            batch_prompts = [f"Evaluate: {expr} <think>" for expr in batch_expressions]
+            # Format prompts for batch (Must exactly match the training target strings)
+            batch_prompts = [f"Evaluate: {expr}\n<think>\n" for expr in batch_expressions]
             
             # Generate solutions for batch
             batch_generated_texts = self._generate_batch(batch_prompts, max_length=max_gen_length)
