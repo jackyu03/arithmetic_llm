@@ -10,9 +10,21 @@ class ExpressionGenerator:
     
 
     def generate(self, current_depth=0):
-        # If we reached max depth or a random chance (only if depth > 0), return a number
-        if current_depth >= self.max_depth or (current_depth > 0 and random.random() < 0.3):
-            return str(random.randint(*self.num_range))
+        # At max_depth, we MUST generate a number (leaf)
+        if current_depth >= self.max_depth:
+            return str(random.randint(self.num_range[0], self.num_range[1]))
+            
+        # At depth 0 (root), we MUST NOT generate a simple number.
+        # This prevents "Evaluate: 14" echoing which wastes compute and
+        # creates a lazy local minima.
+        if current_depth == 0:
+            is_leaf = False
+        else:
+            # 30% chance to be a leaf node early (unless we're at the root)
+            is_leaf = random.random() < 0.3
+            
+        if is_leaf:
+            return str(random.randint(self.num_range[0], self.num_range[1]))
         
         # Otherwise, expand into an operation
         op = random.choice(['+', '-'])

@@ -28,6 +28,14 @@ def main():
     )
 
     parser.add_argument(
+        "--tokenizer-type",
+        type=str,
+        default="digit",
+        choices=["digit", "bpe"],
+        help="Tokenizer type to load (default: digit)"
+    )
+
+    parser.add_argument(
         "--base-checkpoint",
         type=str,
         help="Path to base model checkpoint when evaluating a LoRA adapter"
@@ -117,7 +125,7 @@ def main():
     print("MODEL EVALUATION")
     print("=" * 60)
     print(f"\nModel: {args.model_path}")
-    print(f"Tokenizer: {args.tokenizer_path}")
+    print(f"Tokenizer ({args.tokenizer_type}): {args.tokenizer_path}")
     print(f"Device: {device}")
     print("\nEvaluation Configuration:")
     print(f"  Test samples: {args.num_samples}")
@@ -134,6 +142,7 @@ def main():
         evaluator = ModelEvaluator(
             model_path=args.model_path,
             tokenizer_path=args.tokenizer_path,
+            tokenizer_type=args.tokenizer_type,
             base_checkpoint_path=args.base_checkpoint,
             device=device
         )
