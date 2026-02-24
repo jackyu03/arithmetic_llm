@@ -7,7 +7,7 @@ from datetime import datetime
 from typing import Optional, Dict
 
 from core.model.transformer import ArithmeticTransformer
-from core.data.tokenizer import ArithmeticBPETokenizer
+from core.data.tokenizer import ArithmeticBPETokenizer, ArithmeticDigitTokenizer
 from core.data.loader import create_dataloaders
 from core.training.config import TrainingConfig
 from core.model.lora.config import LoRAConfig
@@ -57,6 +57,7 @@ def create_lora_optimizer(
 def train_instruction_model_lora(
     instruction_corpus_path: str,
     tokenizer_path: str,
+    tokenizer_type: str,
     foundational_checkpoint: str,
     output_dir: str,
     config: TrainingConfig,
@@ -95,11 +96,13 @@ def train_instruction_model_lora(
             wandb.config.update({"model": model_config}, allow_val_change=True)
 
     print(f"LoRA fine-tuning output directory: {output_dir}")
-    print(f"Training configuration: {config.to_dict()}")
 
     # Load tokenizer
     print("Loading tokenizer...")
-    tokenizer = ArithmeticBPETokenizer()
+    if tokenizer_type == "digit":
+        tokenizer = ArithmeticDigitTokenizer()
+    else:
+        tokenizer = ArithmeticBPETokenizer()
     tokenizer.load(tokenizer_path)
     vocab_size = len(tokenizer.token2id)
     print(f"Tokenizer vocabulary size: {vocab_size}")
@@ -180,6 +183,9 @@ def train_instruction_model_lora(
     # Sync curriculum sampler timescale with the actual total steps
     if train_sampler is not None:
         train_sampler.total_steps = total_steps
+        config.curriculum_steps = total_steps
+        
+    print(f"Training configuration: {config.to_dict()}")
 
     # Initialize scheduler
     scheduler = get_linear_schedule_with_warmup(

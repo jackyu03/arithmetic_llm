@@ -31,6 +31,14 @@ def main():
     )
 
     parser.add_argument(
+        "--tokenizer-type",
+        type=str,
+        default="digit",
+        choices=["digit", "bpe"],
+        help="Tokenizer type to load (default: digit)"
+    )
+
+    parser.add_argument(
         "--foundational-checkpoint",
         type=str,
         required=True,
@@ -214,7 +222,7 @@ def main():
     print("LORA INSTRUCTION FINE-TUNING")
     print("=" * 60)
     print(f"\nInstruction corpus: {args.instruction_corpus_path}")
-    print(f"Tokenizer: {args.tokenizer_path}")
+    print(f"Tokenizer ({args.tokenizer_type}): {args.tokenizer_path}")
     print(f"Foundational checkpoint: {args.foundational_checkpoint}")
     print(f"Output directory: {args.output_dir}")
     print("\nLoRA Configuration:")
@@ -238,6 +246,7 @@ def main():
         adapter_path = train_instruction_model_lora(
             instruction_corpus_path=args.instruction_corpus_path,
             tokenizer_path=args.tokenizer_path,
+            tokenizer_type=args.tokenizer_type,
             foundational_checkpoint=args.foundational_checkpoint,
             output_dir=args.output_dir,
             config=config,

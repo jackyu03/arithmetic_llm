@@ -13,55 +13,51 @@ from typing import Optional, Dict, Tuple, Iterator, Any, Callable, List, Set
 from core.model.lora.config import LoRAConfig
 from core.model.lora.layer import LoRALayer
 
+# --- RoPE Helper Functions ---
+def rotate_half(x: torch.Tensor) -> torch.Tensor:
+    """Rotates half the hidden dims of the input."""
+    x1 = x[..., : x.shape[-1] // 2]
+    x2 = x[..., x.shape[-1] // 2 :]
+    return torch.cat((-x2, x1), dim=-1)
 
-def _rotate_half(x: torch.Tensor) -> torch.Tensor:
-    """Rotate half for RoPE: for each pair (x_{2i}, x_{2i+1}) return (-x_{2i+1}, x_{2i})."""
-    last_dim = x.shape[-1]
-    x1 = x[..., 0::2]   # even indices
-    x2 = x[..., 1::2]   # odd indices
-    return torch.stack([-x2, x1], dim=-1).flatten(-2)
-
-
-def _apply_rotary_emb(
-    q: torch.Tensor,
-    k: torch.Tensor,
-    cos: torch.Tensor,
-    sin: torch.Tensor,
-) -> Tuple[torch.Tensor, torch.Tensor]:
-    """Apply rotary position embeddings to query and key tensors.
-    
-    q, k: (batch_size, nhead, seq_length, head_dim)
-    cos, sin: (seq_length, head_dim)
-    """
-    q_embed = (q * cos) + (_rotate_half(q) * sin)
-    k_embed = (k * cos) + (_rotate_half(k) * sin)
+def apply_rotary_pos_emb(q: torch.Tensor, k: torch.Tensor, cos: torch.Tensor, sin: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
+    """Applies Rotary Position Embedding to Query and Key tensors."""
+    q_embed = (q * cos) + (rotate_half(q) * sin)
+    k_embed = (k * cos) + (rotate_half(k) * sin)
     return q_embed, k_embed
 
+class RotaryPositionEmbedding(nn.Module):
+    """Precomputed Sine/Cosine tables for Rotary Position Embedding."""
+    def __init__(self, dim: int, max_position_embeddings: int = 2048, base: int = 10000):
+        super().__init__()
+        self.dim = dim
+        self.max_position_embeddings = max_position_embeddings
+        self.base = base
+        
+        # Calculate inverse frequencies
+        inv_freq = 1.0 / (self.base ** (torch.arange(0, self.dim, 2, dtype=torch.float32) / self.dim))
+        self.register_buffer("inv_freq", inv_freq, persistent=False)
+        
+        self._set_cos_sin_cache(max_position_embeddings)
+        
+    def _set_cos_sin_cache(self, seq_len: int):
+        self.max_seq_len_cached = seq_len
+        t = torch.arange(self.max_seq_len_cached, device=self.inv_freq.device, dtype=self.inv_freq.dtype)
+        freqs = torch.outer(t, self.inv_freq)
+        emb = torch.cat((freqs, freqs), dim=-1)
+        
+        self.register_buffer("cos_cached", emb.cos(), persistent=False)
+        self.register_buffer("sin_cached", emb.sin(), persistent=False)
 
-def _compute_rope_cos_sin(
-    seq_length: int,
-    head_dim: int,
-    device: torch.device,
-    dtype: torch.dtype,
-    base: float = 10000.0,
-) -> Tuple[torch.Tensor, torch.Tensor]:
-    """Compute cos and sin for RoPE.
-    
-    Returns:
-        cos, sin each of shape (seq_length, head_dim)
-    """
-    inv_freq = 1.0 / (
-        base ** (torch.arange(0, head_dim, 2, device=device, dtype=torch.float32) / head_dim)
-    )
-    inv_freq = inv_freq.to(dtype)
-    position = torch.arange(seq_length, device=device, dtype=inv_freq.dtype)
-    angle = torch.outer(position, inv_freq)  # (seq_length, head_dim/2)
-    cos = angle.cos()
-    sin = angle.sin()
-    # Duplicate for pairs: (seq_length, head_dim)
-    cos = cos.repeat_interleave(2, dim=-1)
-    sin = sin.repeat_interleave(2, dim=-1)
-    return cos, sin
+    def forward(self, x: torch.Tensor, seq_len: int) -> Tuple[torch.Tensor, torch.Tensor]:
+        if seq_len > self.max_seq_len_cached:
+            self._set_cos_sin_cache(seq_len)
+            
+        # [seq_len, dim]
+        return (
+            self.cos_cached[:seq_len, :].to(dtype=x.dtype),
+            self.sin_cached[:seq_len, :].to(dtype=x.dtype),
+        )
 
 
 class ArithmeticTransformer(nn.Module):
@@ -109,7 +105,12 @@ class ArithmeticTransformer(nn.Module):
         
         # Token embeddings (position encoding is RoPE applied in attention layers)
         self.token_embedding = nn.Embedding(vocab_size, d_model)
-        
+
+        # Rotary Position Embedding
+        # The rotary dimension is equal to the head dimension (d_model // nhead)
+        self.head_dim = d_model // nhead
+        self.rotary_emb = RotaryPositionEmbedding(self.head_dim, max_position_embeddings=max_seq_length)
+
         # Dropout for embeddings
         self.embedding_dropout = nn.Dropout(dropout)
         
@@ -133,7 +134,7 @@ class ArithmeticTransformer(nn.Module):
     
     def _init_weights(self):
         """Initialize model weights."""
-        # Initialize embeddings
+        # Initialize token embeddings
         nn.init.normal_(self.token_embedding.weight, mean=0.0, std=0.02)
         
         # Initialize linear layers
@@ -183,9 +184,17 @@ class ArithmeticTransformer(nn.Module):
         batch_size, seq_length = input_ids.shape
         device = input_ids.device
         
-        # Get token embeddings (RoPE is applied inside attention layers)
+        # Get token embeddings (No absolute position embeddings added here!)
         hidden_states = self.token_embedding(input_ids)
         hidden_states = self.embedding_dropout(hidden_states)
+
+        # Compute Rotary Embeddings for this sequence length
+        cos, sin = self.rotary_emb(hidden_states, seq_len=seq_length)
+        # Expand cos and sin to match attention shape: [1, 1, seq_length, head_dim]
+        position_embeddings = (
+            cos.unsqueeze(0).unsqueeze(0),
+            sin.unsqueeze(0).unsqueeze(0)
+        )
         
         # Create causal mask
         causal_mask = self._create_causal_mask(seq_length, device)
@@ -207,10 +216,20 @@ class ArithmeticTransformer(nn.Module):
         # Pass through transformer layers
         for layer in self.layers:
             if output_attentions:
-                hidden_states, attn_weights = layer(hidden_states, combined_mask, output_attentions=True)
+                hidden_states, attn_weights = layer(
+                    hidden_states, 
+                    attention_mask=combined_mask, 
+                    position_embeddings=position_embeddings,
+                    output_attentions=True
+                )
                 all_attentions = all_attentions + (attn_weights,)
             else:
-                hidden_states, _ = layer(hidden_states, combined_mask, output_attentions=False)
+                hidden_states, _ = layer(
+                    hidden_states, 
+                    attention_mask=combined_mask, 
+                    position_embeddings=position_embeddings,
+                    output_attentions=False
+                )
         
         # Apply final layer normalization
         hidden_states = self.layer_norm(hidden_states)
@@ -467,7 +486,8 @@ class ArithmeticTransformer(nn.Module):
                 
                 # Apply top-k filtering
                 if top_k > 0:
-                    indices_to_remove = next_token_logits < torch.topk(next_token_logits, top_k)[0][..., -1, None]
+                    k = min(top_k, next_token_logits.size(-1))
+                    indices_to_remove = next_token_logits < torch.topk(next_token_logits, k)[0][..., -1, None]
                     next_token_logits[indices_to_remove] = float('-inf')
                 
                 # Apply top-p (nucleus) filtering
@@ -564,6 +584,7 @@ class TransformerLayer(nn.Module):
         self,
         hidden_states: torch.Tensor,
         attention_mask: Optional[torch.Tensor] = None,
+        position_embeddings: Optional[Tuple[torch.Tensor, torch.Tensor]] = None,
         output_attentions: bool = False
     ) -> Tuple[torch.Tensor, Optional[torch.Tensor]]:
         """Forward pass through transformer layer.
@@ -571,6 +592,7 @@ class TransformerLayer(nn.Module):
         Args:
             hidden_states: Input of shape (batch_size, seq_length, d_model)
             attention_mask: Optional mask of shape (batch_size, seq_length, seq_length)
+            position_embeddings: Tuple of (cos, sin) tensors for RoPE
             output_attentions: Whether to capture and return attention weights
 
         Returns:
@@ -579,7 +601,12 @@ class TransformerLayer(nn.Module):
         # Self-attention with residual connection and layer norm (pre-norm)
         residual = hidden_states
         hidden_states = self.norm1(hidden_states)
-        hidden_states, attn_weights = self.self_attention(hidden_states, attention_mask, output_attentions=output_attentions)
+        hidden_states, attn_weights = self.self_attention(
+            hidden_states, 
+            attention_mask=attention_mask, 
+            position_embeddings=position_embeddings,
+            output_attentions=output_attentions
+        )
         hidden_states = self.dropout1(hidden_states)
         hidden_states = residual + hidden_states
         
@@ -627,6 +654,7 @@ class MultiHeadAttention(nn.Module):
         self,
         hidden_states: torch.Tensor,
         attention_mask: Optional[torch.Tensor] = None,
+        position_embeddings: Optional[Tuple[torch.Tensor, torch.Tensor]] = None,
         output_attentions: bool = False
     ) -> Tuple[torch.Tensor, Optional[torch.Tensor]]:
         """Forward pass through multi-head attention.
@@ -634,6 +662,7 @@ class MultiHeadAttention(nn.Module):
         Args:
             hidden_states: Input of shape (batch_size, seq_length, d_model)
             attention_mask: Optional mask of shape (batch_size, seq_length, seq_length)
+            position_embeddings: Tuple of (cos, sin) tensors for RoPE
             output_attentions: Whether to capture and return attention weights
 
         Returns:
@@ -652,14 +681,10 @@ class MultiHeadAttention(nn.Module):
         k = k.view(batch_size, seq_length, self.nhead, self.head_dim).transpose(1, 2)
         v = v.view(batch_size, seq_length, self.nhead, self.head_dim).transpose(1, 2)
         
-        # Apply rotary position embeddings to Q and K
-        cos, sin = _compute_rope_cos_sin(
-            seq_length, self.head_dim, q.device, q.dtype
-        )
-        # cos/sin (seq_length, head_dim) -> (1, 1, seq_length, head_dim) for broadcasting
-        cos = cos.unsqueeze(0).unsqueeze(0)
-        sin = sin.unsqueeze(0).unsqueeze(0)
-        q, k = _apply_rotary_emb(q, k, cos, sin)
+        # Apply Rotary Position Embeddings to Queries and Keys
+        if position_embeddings is not None:
+            cos, sin = position_embeddings
+            q, k = apply_rotary_pos_emb(q, k, cos, sin)
         
         # Compute attention scores
         attention_scores = torch.matmul(q, k.transpose(-2, -1))

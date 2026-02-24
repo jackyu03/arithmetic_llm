@@ -18,6 +18,7 @@ class InteractiveArithmeticSolver:
         self,
         model_path: str,
         tokenizer_path: str,
+        tokenizer_type: str = "digit",
         device: str = (
             "cuda" if torch.cuda.is_available() 
             else "mps" if torch.backends.mps.is_available() 
@@ -29,6 +30,7 @@ class InteractiveArithmeticSolver:
         Args:
             model_path: Path to instruction-tuned model checkpoint
             tokenizer_path: Path to tokenizer directory
+            tokenizer_type: Type of tokenizer used ('digit' or 'bpe')
             device: Device for inference ('cuda', 'mps', or 'cpu')
         """
         self.device = device
@@ -39,9 +41,13 @@ class InteractiveArithmeticSolver:
         
         # Load tokenizer
         from core.data.tokenizer import (
-            ArithmeticBPETokenizer
+            ArithmeticBPETokenizer, ArithmeticDigitTokenizer
         )
-        self.tokenizer = ArithmeticBPETokenizer()
+        if tokenizer_type == "digit":
+            self.tokenizer = ArithmeticDigitTokenizer()
+        else:
+            self.tokenizer = ArithmeticBPETokenizer()
+            
         self.tokenizer.load(tokenizer_path)
         
         # Load model
@@ -118,8 +124,11 @@ class InteractiveArithmeticSolver:
                     formatted_output = self.format_output(solution)
                     print(formatted_output)
                 except Exception as e:
+                    import traceback
                     print("\nError: Failed to generate solution.")
                     print(f"Details: {str(e)}")
+                    print("Traceback:")
+                    traceback.print_exc()
                     print("Please try again with a different expression.\n")
                 
             except KeyboardInterrupt:
@@ -155,13 +164,17 @@ class InteractiveArithmeticSolver:
             dtype=torch.long
         ).to(self.device)
         
+        is_digit = hasattr(self.tokenizer, 'scaffolding_tokens')
+        temp = 0.1 if is_digit else 0.8
+        k = 5 if is_digit else 50
+        
         # Generate solution
         with torch.no_grad():
             generated_ids = self.model.generate(
                 input_tensor,
-                max_length=256,
-                temperature=0.8, # TODO: make this a parameter
-                top_k=50,
+                max_length=2048,
+                temperature=temp,
+                top_k=k,
                 top_p=0.9,
                 eos_token_id=eos_token_id
             )
@@ -234,7 +247,7 @@ class InteractiveArithmeticSolver:
             # Add any other content
             output += f"{line}\n"
         
-        # Check if output is complete
+        # If output is totally empty after filtering, show raw to user
         if not found_reasoning and not found_result:
             output += "\nWarning: Model output may be incomplete or malformed.\n"
             output += "Raw output:\n"

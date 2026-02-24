@@ -397,8 +397,8 @@ class ModelEvaluator:
             batch_expressions = test_expressions[batch_start:batch_end]
             batch_answers = test_answers[batch_start:batch_end]
             
-            # Format prompts for batch
-            batch_prompts = [f"Evaluate: {expr} <think>" for expr in batch_expressions]
+           # Format prompts for batch (Must exactly match the training target strings)
+            batch_prompts = [f"Evaluate: {expr}\n<think>\n" for expr in batch_expressions]
             
             # Generate solutions for batch
             batch_generated_texts = self._generate_batch(
@@ -497,14 +497,18 @@ class ModelEvaluator:
         input_tensor = torch.tensor([input_ids], dtype=torch.long).to(self.device)
         
         forbid_fn = (lambda g: get_forbidden_token_ids_for_constraint(self.tokenizer, g)) if use_constrained_decoding else None
+
+        is_digit = hasattr(self.tokenizer, 'scaffolding_tokens')
+        temp = 0.1 if is_digit else 0.8
+        k = 5 if is_digit else 50
         
         # Generate (lower temperature reduces "dropping" numbers in steps)
         with torch.no_grad():
             generated_ids = self.model.generate(
                 input_tensor,
                 max_length=max_length,
-                temperature=temperature,
-                top_k=top_k,
+                temperature=temp,
+                top_k=k,
                 top_p=top_p,
                 eos_token_id=eos_token_id,
                 forbid_token_ids_fn=forbid_fn,
@@ -568,12 +572,15 @@ class ModelEvaluator:
         forbid_fn = (lambda g: get_forbidden_token_ids_for_constraint(self.tokenizer, g)) if use_constrained_decoding else None
         
         # Generate for batch (lower temperature reduces dropped digits in steps)
+        is_digit = hasattr(self.tokenizer, 'scaffolding_tokens')
+        temp = 0.1 if is_digit else 0.8
+        k = 5 if is_digit else 50
         with torch.no_grad():
             generated_ids = self.model.generate(
                 input_tensor,
                 max_length=max_length,
-                temperature=temperature,
-                top_k=top_k,
+                temperature=temp,
+                top_k=k,
                 top_p=top_p,
                 eos_token_id=eos_token_id,
                 attention_mask=attention_mask,

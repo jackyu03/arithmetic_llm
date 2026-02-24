@@ -5,7 +5,10 @@ import pickle
 import json
 from collections import Counter
 from typing import List
-from tqdm import tqdm
+try:
+    from tqdm import tqdm
+except ImportError:
+    tqdm = lambda x, **kwargs: x
 
 
 class ArithmeticDigitTokenizer:
@@ -22,6 +25,10 @@ class ArithmeticDigitTokenizer:
         
         # Define special tokens for arithmetic reasoning
         self.special_tokens = ['<pad>', '<unk>', '<bos>', '<eos>', '<think>', '</think>']
+
+        # Define English scaffolding words that should be treated as single tokens
+        # to save context space, while numbers remain char-by-char
+        self.scaffolding_tokens = ['Evaluate: ', 'Step ', 'Expression now: ', 'Final Result: ']
         
         # Define atomic symbols that should never be merged
         self.atomic_symbols = ['+', '-', '(', ')', ':', '=', '*']
@@ -38,19 +45,13 @@ class ArithmeticDigitTokenizer:
         
         # Ensure atomic symbols are always in the vocabulary
         tokens.update(self.atomic_symbols)
+
+        # Ensure scaffolding words are atomic tokens
+        tokens.update(self.scaffolding_tokens)
         
         # Ensure all individual characters that appear in arithmetic are in vocabulary
-        arithmetic_chars = set('0123456789 ')
+        arithmetic_chars = set('0123456789 \n')
         tokens.update(arithmetic_chars)
-        
-        # Add common punctuation and letters just in case
-        for i in range(ord('a'), ord('z') + 1):
-            tokens.add(chr(i))
-        for i in range(ord('A'), ord('Z') + 1):
-            tokens.add(chr(i))
-            
-        common_punctuation = '.,!?;:\'"'
-        tokens.update(common_punctuation)
         
         self.vocab = tokens
         
@@ -69,12 +70,18 @@ class ArithmeticDigitTokenizer:
                 'token2id': self.token2id,
                 'id2token': self.id2token,
                 'special_tokens': self.special_tokens,
+                'scaffolding_tokens': self.scaffolding_tokens,
                 'atomic_symbols': self.atomic_symbols,
             }, f)
 
     def load(self, save_dir: str) -> None:
         import os
         filepath = os.path.join(save_dir, 'tokenizer_digit.pkl')
+        if not os.path.exists(filepath):
+            self.train("dummy_path")
+            self.save(save_dir)
+            return
+            
         with open(filepath, 'rb') as f:
             state = pickle.load(f)
         
@@ -83,6 +90,7 @@ class ArithmeticDigitTokenizer:
         self.token2id = state['token2id']
         self.id2token = state['id2token']
         self.special_tokens = state.get('special_tokens', self.special_tokens)
+        self.scaffolding_tokens = state.get('scaffolding_tokens', ['Evaluate: ', 'Step ', 'Expression now: ', 'Final Result: '])
         self.atomic_symbols = state.get('atomic_symbols', ['+', '-', '(', ')', ':', '=', '*'])
 
     def encode(self, text: str, add_special_tokens: bool = True) -> List[int]:
@@ -95,7 +103,10 @@ class ArithmeticDigitTokenizer:
         
         # Remove special tokens temporarily so they don't get split into characters
         special_token_map = {}
-        for idx, st in enumerate(self.special_tokens):
+         # We group both special tokens and scaffolding tokens to be protected from char splits
+        tokens_to_protect = self.special_tokens + self.scaffolding_tokens
+        
+        for idx, st in enumerate(tokens_to_protect):
             placeholder = f"__SPECIAL_{idx}__"
             if st in text:
                 text = text.replace(st, placeholder)
@@ -140,7 +151,8 @@ class ArithmeticDigitTokenizer:
             special_to_skip = {'<bos>', '<eos>', '<pad>', '<unk>'}
             tokens = [t for t in tokens if t not in special_to_skip]
             
-        # Simply join the characters back together
+        # Join the characters. Scaffolding tokens inherently contain 
+        # their own spaces (e.g. "Step "), so joining them raw is correct.
         return "".join(tokens).strip()
 
 
