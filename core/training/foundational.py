@@ -323,7 +323,6 @@ def train_foundational_model(
     os.makedirs(output_dir, exist_ok=True)
     
     print(f"Training output directory: {output_dir}")
-    print(f"Configuration: {config.to_dict()}")
     
     # Load tokenizer
     print(f"Loading {tokenizer_type} tokenizer...")
@@ -394,6 +393,9 @@ def train_foundational_model(
     # Sync curriculum sampler timescale with the actual total steps
     if train_sampler is not None:
         train_sampler.total_steps = total_steps
+        config.curriculum_steps = total_steps
+        
+    print(f"Configuration: {config.to_dict()}")
     
     # Initialize scheduler
     scheduler = get_linear_schedule_with_warmup(
