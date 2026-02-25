@@ -146,8 +146,13 @@ class InteractiveArithmeticSolver:
         Returns:
             Generated solution with reasoning steps
         """
+        # Auto-format spacing around operators to match training data
+        import re
+        formatted_expr = re.sub(r'([+\-*/()])', r' \1 ', expression)
+        formatted_expr = re.sub(r'\s+', ' ', formatted_expr).strip()
+        
         # Format expression as instruction prompt
-        prompt = f"Evaluate: {expression} <think>"
+        prompt = f"Evaluate: {formatted_expr} <think>"
         
         # Encode prompt (with BOS, without EOS since we're generating)
         input_ids = self.tokenizer.encode(prompt, add_special_tokens=True)
