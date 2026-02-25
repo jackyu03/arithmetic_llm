@@ -33,6 +33,14 @@ def main():
         help="Device for inference: 'cuda', 'mps', 'cpu', or 'auto' (default: auto)"
     )
     
+    parser.add_argument(
+        "--tokenizer-type",
+        type=str,
+        default="digit",
+        choices=["digit", "bpe"],
+        help="Tokenizer type to load (default: digit)"
+    )
+    
     args = parser.parse_args()
     
     # Determine device
@@ -59,6 +67,7 @@ def main():
         solver = InteractiveArithmeticSolver(
             model_path=args.model_path,
             tokenizer_path=args.tokenizer_path,
+            tokenizer_type=args.tokenizer_type,
             device=device
         )
         solver.run()

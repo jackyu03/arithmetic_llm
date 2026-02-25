@@ -18,6 +18,7 @@ class InteractiveArithmeticSolver:
         self,
         model_path: str,
         tokenizer_path: str,
+        tokenizer_type: str = "digit",
         device: str = (
             "cuda" if torch.cuda.is_available() 
             else "mps" if torch.backends.mps.is_available() 
@@ -29,6 +30,7 @@ class InteractiveArithmeticSolver:
         Args:
             model_path: Path to instruction-tuned model checkpoint
             tokenizer_path: Path to tokenizer directory
+            tokenizer_type: Type of tokenizer used ('digit' or 'bpe')
             device: Device for inference ('cuda', 'mps', or 'cpu')
         """
         self.device = device
@@ -39,9 +41,13 @@ class InteractiveArithmeticSolver:
         
         # Load tokenizer
         from core.data.tokenizer import (
-            ArithmeticBPETokenizer
+            ArithmeticBPETokenizer, ArithmeticDigitTokenizer
         )
-        self.tokenizer = ArithmeticBPETokenizer()
+        if tokenizer_type == "digit":
+            self.tokenizer = ArithmeticDigitTokenizer()
+        else:
+            self.tokenizer = ArithmeticBPETokenizer()
+            
         self.tokenizer.load(tokenizer_path)
         
         # Load model
