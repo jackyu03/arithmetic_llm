@@ -161,13 +161,17 @@ class InteractiveArithmeticSolver:
             dtype=torch.long
         ).to(self.device)
         
+        is_digit = hasattr(self.tokenizer, 'scaffolding_tokens')
+        temp = 0.1 if is_digit else 0.8
+        k = 5 if is_digit else 50
+        
         # Generate solution
         with torch.no_grad():
             generated_ids = self.model.generate(
                 input_tensor,
-                max_length=256,
-                temperature=0.8,
-                top_k=50,
+                max_length=2048,
+                temperature=temp,
+                top_k=k,
                 top_p=0.9,
                 eos_token_id=eos_token_id
             )
@@ -239,8 +243,8 @@ class InteractiveArithmeticSolver:
             
             # Add any other content
             output += f"{line}\n"
-        
-        # Check if output is complete
+            
+        # If output is totally empty after filtering, show raw to user
         if not found_reasoning and not found_result:
             output += "\nWarning: Model output may be incomplete or malformed.\n"
             output += "Raw output:\n"
