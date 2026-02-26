@@ -3,6 +3,7 @@
 
 import random
 import argparse
+from datetime import datetime
 from core.eval.evaluator import ModelEvaluator
 
 
@@ -166,15 +167,23 @@ def main():
         # Run evaluation
         print("Starting evaluation...")
         import os
-        model_name = os.path.basename(os.path.normpath(args.model_path))
-        final_output_dir = os.path.join(args.output_dir, model_name)
+        os.makedirs(args.output_dir, exist_ok=True)
         
+        # Save evaluation arguments
+        import json
+        
+        args_dict = vars(args)
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        args_path = os.path.join(args.output_dir, f'evaluation_args_{timestamp}.json')
+        with open(args_path, 'w') as f:
+            json.dump(args_dict, f, indent=2)
+            
         metrics = evaluator.evaluate(
             num_samples=args.num_samples,
             min_depth=args.min_depth,
             max_depth=args.max_depth,
             num_range=tuple(args.num_range),
-            output_dir=final_output_dir,
+            output_dir=args.output_dir,
             batch_size=args.batch_size,
             max_gen_length=args.max_gen_length,
             log_all_questions=args.log_all_questions
