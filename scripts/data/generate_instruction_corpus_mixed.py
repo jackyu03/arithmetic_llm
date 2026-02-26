@@ -13,6 +13,7 @@ from core.data.corpus import CorpusGenerator
 def _generate_instruction_corpus(
     num_samples: int,
     target_tokens: int,
+    min_depth: int,
     max_depth: int,
     num_range: Tuple[int, int],
     invalid_rate: float,
@@ -23,6 +24,7 @@ def _generate_instruction_corpus(
     generator = CorpusGenerator(
         target_tokens=target_tokens,
         num_samples=num_samples,
+        min_depth=min_depth,
         max_depth=max_depth,
         num_range=num_range,
         invalid_rate=invalid_rate,
@@ -50,6 +52,7 @@ def main() -> None:
     )
     parser.add_argument("--num-samples", type=int, default=None, help="Legacy sample count")
     parser.add_argument("--target-tokens", type=int, default=None, help="Target total tokens to generate")
+    parser.add_argument("--min-depth", type=int, default=1)
     parser.add_argument("--max-depth", type=int, default=5)
     parser.add_argument("--num-range", type=int, nargs=2, default=[1, 20])
     parser.add_argument("--invalid-rate", type=float, default=0.1)
@@ -74,8 +77,10 @@ def main() -> None:
         parser.error("num-samples must be positive")
     if args.target_tokens is not None and args.target_tokens <= 0:
         parser.error("target-tokens must be positive")
-    if args.max_depth <= 0:
-        parser.error("max-depth must be positive")
+    if args.min_depth <= 0:
+        parser.error("min-depth must be positive")
+    if args.max_depth < args.min_depth:
+        parser.error("max-depth must be >= min-depth")
     if args.num_range[0] >= args.num_range[1]:
         parser.error("num-range MIN must be less than MAX")
     if not 0.0 <= args.invalid_rate <= 1.0:
@@ -99,6 +104,7 @@ def main() -> None:
             _generate_instruction_corpus(
                 num_samples=error_samples,
                 target_tokens=error_tokens,
+                min_depth=args.min_depth,
                 max_depth=args.max_depth,
                 num_range=num_range,
                 invalid_rate=1.0, # All errors
@@ -109,6 +115,7 @@ def main() -> None:
         _generate_instruction_corpus(
             num_samples=correct_samples,
             target_tokens=correct_tokens,
+            min_depth=args.min_depth,
             max_depth=args.max_depth,
             num_range=num_range,
             invalid_rate=0.0,
