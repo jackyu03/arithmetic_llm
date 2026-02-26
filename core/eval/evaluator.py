@@ -295,7 +295,8 @@ class ModelEvaluator:
         test_answers = []
         
         print(f"Generating {num_samples} test expressions...")
-        for _ in range(num_samples):
+        from tqdm import tqdm
+        for _ in tqdm(range(num_samples), desc="Generating expressions"):
             expression = generator.generate()
             
             # Get ground truth answer
@@ -314,8 +315,10 @@ class ModelEvaluator:
         
         print(f"Evaluating model with batch size {batch_size}...")
         
+        from tqdm import tqdm
+        
         # Process in batches
-        for batch_start in range(0, len(test_expressions), batch_size):
+        for batch_start in tqdm(range(0, len(test_expressions), batch_size), desc="Evaluating batches"):
             batch_end = min(batch_start + batch_size, len(test_expressions))
             batch_expressions = test_expressions[batch_start:batch_end]
             batch_answers = test_answers[batch_start:batch_end]
@@ -355,9 +358,6 @@ class ModelEvaluator:
                         'parseable': predicted_result is not None,
                         'correct': predicted_result == ground_truth if predicted_result is not None else False
                     })
-            
-            # Progress update
-            print(f"Evaluated {batch_end}/{len(test_expressions)} samples")
         
         # Calculate metrics
         total = len(test_expressions)
