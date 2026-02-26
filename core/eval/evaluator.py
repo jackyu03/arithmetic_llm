@@ -260,7 +260,6 @@ class ModelEvaluator:
         max_depth: int = 5,
         num_range: Tuple[int, int] = (1, 20),
         output_dir: Optional[str] = None,
-        batch_size: int = 32,
         max_gen_length: int = 256,
         log_all_questions: bool = False
     ) -> Dict[str, float]:
@@ -271,7 +270,6 @@ class ModelEvaluator:
             max_depth: Maximum depth of test expressions
             num_range: Range of numbers to use in expressions
             output_dir: Optional directory to save evaluation results
-            batch_size: Batch size for inference (default: 32)
             max_gen_length: Maximum generation length in tokens (default: 256)
             
         Returns:
@@ -313,47 +311,33 @@ class ModelEvaluator:
         total_length = 0
         sample_outputs = []
         
-        print(f"Evaluating model with batch size {batch_size}...")
+        print(f"Evaluating model...")
         
         from tqdm import tqdm
         
-        # Process in batches
-        for batch_start in tqdm(range(0, len(test_expressions), batch_size), desc="Evaluating batches"):
-            batch_end = min(batch_start + batch_size, len(test_expressions))
-            batch_expressions = test_expressions[batch_start:batch_end]
-            batch_answers = test_answers[batch_start:batch_end]
+        # Process sequentially
+        for i, (expression, ground_truth) in tqdm(enumerate(zip(test_expressions, test_answers)), total=len(test_expressions), desc="Evaluating"):
             
-            # Instead of batching which is currently hanging due to padding logic, 
-            # we use the proven sequential _generate_solution which is lightning fast.
-            # We process them sequentially but still chunk them into the progress bar logs.
-            batch_generated_texts = []
-            for expr in batch_expressions:
-                prompt = f"Evaluate: {expr}\n<think>\n"
-                generated_text = self._generate_solution(prompt, max_length=max_gen_length)
-                batch_generated_texts.append(generated_text)
+            prompt = f"Evaluate: {expression}\n<think>\n"
+            generated_text = self._generate_solution(prompt, max_length=max_gen_length)
             
-            # Process batch results
-            for i, (expression, ground_truth, generated_text) in enumerate(
-                zip(batch_expressions, batch_answers, batch_generated_texts)
-            ):
-                total_length += len(generated_text.split())
+            total_length += len(generated_text.split())
                 
-                # Extract final result
-                predicted_result = self.extract_final_result(generated_text)
+            # Extract final result
+            predicted_result = self.extract_final_result(generated_text)
+            
+            # Check if output is parseable
+            if predicted_result is not None:
+                parseable += 1
                 
-                # Check if output is parseable
-                if predicted_result is not None:
-                    parseable += 1
-                    
-                    # Check if result is correct
-                    if predicted_result == ground_truth:
-                        correct += 1
-                
-                # Save sample outputs
-                global_idx = batch_start + i
-                if log_all_questions or global_idx < 10:
-                    sample_outputs.append({
-                        'question_number': global_idx + 1,
+                # Check if result is correct
+                if predicted_result == ground_truth:
+                    correct += 1
+            
+            # Save sample outputs
+            if log_all_questions or i < 10:
+                sample_outputs.append({
+                    'question_number': i + 1,
                         'expression': expression,
                         'ground_truth': ground_truth,
                         'predicted': predicted_result,

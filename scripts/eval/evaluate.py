@@ -94,13 +94,6 @@ def main():
     )
     
     parser.add_argument(
-        "--batch-size",
-        type=int,
-        default=1,
-        help="Batch size for inference (default: 1)"
-    )
-    
-    parser.add_argument(
         "--max-gen-length",
         type=int,
         default=2048,
@@ -146,7 +139,6 @@ def main():
     print(f"  Min depth: {args.min_depth}")
     print(f"  Max depth: {args.max_depth}")
     print(f"  Number range: {args.num_range[0]} to {args.num_range[1]}")
-    print(f"  Batch size: {args.batch_size}")
     print(f"  Max generation length: {args.max_gen_length}")
     print(f"  Output directory: {args.output_dir}")
     print(f"  Log all questions: {args.log_all_questions}")
@@ -184,7 +176,6 @@ def main():
             max_depth=args.max_depth,
             num_range=tuple(args.num_range),
             output_dir=args.output_dir,
-            batch_size=args.batch_size,
             max_gen_length=args.max_gen_length,
             log_all_questions=args.log_all_questions
         )
