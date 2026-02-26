@@ -2,7 +2,8 @@ import random
 
 
 class ExpressionGenerator:
-    def __init__(self, max_depth=2, num_range=(1, 20), invalid_rate=0.1):
+    def __init__(self, min_depth=1, max_depth=2, num_range=(1, 20), invalid_rate=0.1):
+        self.min_depth = min_depth
         self.max_depth = max_depth
         self.num_range = num_range
         self.invalid_rate = invalid_rate
@@ -14,13 +15,11 @@ class ExpressionGenerator:
         if current_depth >= self.max_depth:
             return str(random.randint(self.num_range[0], self.num_range[1]))
             
-        # At depth 0 (root), we MUST NOT generate a simple number.
-        # This prevents "Evaluate: 14" echoing which wastes compute and
-        # creates a lazy local minima.
-        if current_depth == 0:
+        # Below min_depth, we MUST NOT generate a simple number.
+        if current_depth < self.min_depth:
             is_leaf = False
         else:
-            # 30% chance to be a leaf node early (unless we're at the root)
+            # 30% chance to be a leaf node early (unless we're at the root or below min_depth)
             is_leaf = random.random() < 0.3
             
         if is_leaf:
@@ -85,13 +84,13 @@ class ExpressionGenerator:
 if __name__ == "__main__":
     # Usage
     for _ in range(5):
-        generator = ExpressionGenerator(max_depth=5, invalid_rate=0.1)
+        generator = ExpressionGenerator(min_depth=1, max_depth=5, invalid_rate=0.1)
         new_expr = generator.generate()
 
         print(f"Generated Expression: {new_expr}")
 
     for _ in range(5):
-        generator = ExpressionGenerator(max_depth=5, invalid_rate=-1.0)
+        generator = ExpressionGenerator(min_depth=1, max_depth=5, invalid_rate=-1.0)
         new_expr = generator.generate()
 
         print(f"Generated Expression: {new_expr}")

@@ -50,6 +50,13 @@ def main():
     )
     
     parser.add_argument(
+        "--min-depth",
+        type=int,
+        default=1,
+        help="Minimum depth of test expressions (default: 1)"
+    )
+    
+    parser.add_argument(
         "--max-depth",
         type=int,
         default=5,
@@ -69,7 +76,13 @@ def main():
         "--output-dir",
         type=str,
         default="evaluation_results",
-        help="Directory to save evaluation results (default: homeowrk/core/evaluation_results)"
+        help="Directory to save evaluation results (default: evaluation_results)"
+    )
+    
+    parser.add_argument(
+        "--log-all-questions",
+        action="store_true",
+        help="Log detailed results for all questions"
     )
     
     parser.add_argument(
@@ -129,11 +142,13 @@ def main():
     print(f"Device: {device}")
     print("\nEvaluation Configuration:")
     print(f"  Test samples: {args.num_samples}")
+    print(f"  Min depth: {args.min_depth}")
     print(f"  Max depth: {args.max_depth}")
     print(f"  Number range: {args.num_range[0]} to {args.num_range[1]}")
     print(f"  Batch size: {args.batch_size}")
     print(f"  Max generation length: {args.max_gen_length}")
     print(f"  Output directory: {args.output_dir}")
+    print(f"  Log all questions: {args.log_all_questions}")
     print("=" * 60 + "\n")
     
     # Create evaluator
@@ -150,13 +165,19 @@ def main():
         
         # Run evaluation
         print("Starting evaluation...")
+        import os
+        model_name = os.path.basename(os.path.normpath(args.model_path))
+        final_output_dir = os.path.join(args.output_dir, model_name)
+        
         metrics = evaluator.evaluate(
             num_samples=args.num_samples,
+            min_depth=args.min_depth,
             max_depth=args.max_depth,
             num_range=tuple(args.num_range),
-            output_dir=args.output_dir,
+            output_dir=final_output_dir,
             batch_size=args.batch_size,
-            max_gen_length=args.max_gen_length
+            max_gen_length=args.max_gen_length,
+            log_all_questions=args.log_all_questions
         )
         
         # Display results

@@ -132,7 +132,7 @@ if __name__ == "__main__":
 
     from core.inference.generator import ExpressionGenerator
     for _ in range(5):
-        generator = ExpressionGenerator(max_depth=5, invalid_rate=0.1)
+        generator = ExpressionGenerator(min_depth=1, max_depth=5, invalid_rate=0.1)
         new_expr = generator.generate()
 
         print(f"\n\nGenerated Expression: {new_expr}\n")
@@ -256,11 +256,13 @@ class ModelEvaluator:
     def evaluate(
         self,
         num_samples: int = 1000,
+        min_depth: int = 1,
         max_depth: int = 5,
         num_range: Tuple[int, int] = (1, 20),
         output_dir: Optional[str] = None,
         batch_size: int = 32,
-        max_gen_length: int = 256
+        max_gen_length: int = 256,
+        log_all_questions: bool = False
     ) -> Dict[str, float]:
         """Evaluate model on test set.
         
@@ -283,6 +285,7 @@ class ModelEvaluator:
         
         # Generate test set
         generator = ExpressionGenerator(
+            min_depth=min_depth,
             max_depth=max_depth,
             num_range=num_range,
             invalid_rate=0.0  # Only valid expressions for evaluation
@@ -340,14 +343,16 @@ class ModelEvaluator:
                     if predicted_result == ground_truth:
                         correct += 1
                 
-                # Save sample outputs (first 10)
+                # Save sample outputs
                 global_idx = batch_start + i
-                if global_idx < 10:
+                if log_all_questions or global_idx < 10:
                     sample_outputs.append({
+                        'question_number': global_idx + 1,
                         'expression': expression,
                         'ground_truth': ground_truth,
                         'predicted': predicted_result,
                         'generated_text': generated_text,
+                        'parseable': predicted_result is not None,
                         'correct': predicted_result == ground_truth if predicted_result is not None else False
                     })
             
@@ -367,7 +372,7 @@ class ModelEvaluator:
         
         # Save results if output directory is provided
         if output_dir:
-            self._save_results(metrics, sample_outputs, output_dir)
+            self._save_results(metrics, sample_outputs, output_dir, log_all_questions)
         
         return metrics
     
@@ -547,7 +552,8 @@ class ModelEvaluator:
         self,
         metrics: Dict[str, float],
         sample_outputs: List[Dict],
-        output_dir: str
+        output_dir: str,
+        log_all_questions: bool = False
     ) -> None:
         """Save evaluation results to disk.
         
@@ -600,9 +606,39 @@ class ModelEvaluator:
                 for line in sample['generated_text'].split('\n'):
                     f.write(f"    {line}\n")
         
+        if log_all_questions:
+            # Generate detailed txt for all questions
+            detailed_txt_path = os.path.join(output_dir, f'all_questions_{timestamp}.txt')
+            with open(detailed_txt_path, 'w') as f:
+                for sample in sample_outputs:
+                    f.write(f"Question Number: {sample.get('question_number', 'N/A')}\n")
+                    f.write(f"Question: {sample['expression']}\n")
+                    f.write(f"Generated text:\n{sample['generated_text']}\n")
+                    f.write(f"Result: {sample['predicted']}\n")
+                    f.write(f"Expected result: {sample['ground_truth']}\n")
+                    f.write(f"Parsable: {sample.get('parseable', sample['predicted'] is not None)}\n")
+                    f.write("-" * 40 + "\n")
+            
+            # Generate summary csv for all questions
+            import csv
+            detailed_csv_path = os.path.join(output_dir, f'all_questions_{timestamp}.csv')
+            with open(detailed_csv_path, 'w', newline='') as f:
+                writer = csv.writer(f)
+                writer.writerow(['Question Number', 'Parsable', 'Correct'])
+                for sample in sample_outputs:
+                    writer.writerow([
+                        sample.get('question_number', 'N/A'),
+                        sample.get('parseable', sample['predicted'] is not None),
+                        sample['correct']
+                    ])
+
         print(f"\nEvaluation results saved to {output_dir}")
         print(f"  - Metrics: {metrics_path}")
         print(f"  - Samples: {samples_path}")
         print(f"  - Summary: {summary_path}")
+        
+        if log_all_questions:
+            print(f"  - Detailed Txt: {detailed_txt_path}")
+            print(f"  - Detailed CSV: {detailed_csv_path}")
 
 
