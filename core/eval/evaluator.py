@@ -86,19 +86,7 @@ class ArithmeticEvaluator:
         node.value = (left_val + right_val) if node.op == '+' else (left_val - right_val)
         node.evaluated = True
         expr_now = self.render_expression(self.root, is_root=True)
-        self.steps.append((f"{left_val} {node.op} {right_val} = {node.value}", expr_now))
         return node.value
-
-    def get_depth(self, node=None):
-        if node is None:
-            node = self.root
-        if node is None:
-            return 0
-        if getattr(node, 'kind', None) == 'num':
-            return 0
-        left_depth = self.get_depth(node.left) if getattr(node, 'left', None) else 0
-        right_depth = self.get_depth(node.right) if getattr(node, 'right', None) else 0
-        return 1 + max(left_depth, right_depth)
 
     def evaluate(self):
         self.steps = []
@@ -124,16 +112,14 @@ def eval_expression(expression):
             'expression': expression,
             'problem': problem_statement,
             'solution': "\n".join(answers),
-            'answer': result,
-            'depth': evaluator.get_depth()
+            'answer': result
         }
     except Exception:
         return {
             'expression': expression,
             'problem': f"Evaluate: {expression}",
             'solution': "<think>Evaluation ERROR</think>\nFinal Result: ERROR",
-            'answer': "ERROR",
-            'depth': 0
+            'answer': "ERROR"
         }
 
 
@@ -308,14 +294,14 @@ class ModelEvaluator:
         print(f"Generating {num_samples} test expressions...")
         from tqdm import tqdm
         for _ in tqdm(range(num_samples), desc="Generating expressions"):
-            expression = generator.generate()
+            expression, depth = generator.generate(return_depth=True)
             
             # Get ground truth answer
             result = eval_expression(expression)
             if result['answer'] != 'ERROR':
                 test_expressions.append(expression)
                 test_answers.append(result['answer'])
-                test_depths.append(result.get('depth', 0))
+                test_depths.append(depth)
         
         print(f"Generated {len(test_expressions)} valid test expressions")
         

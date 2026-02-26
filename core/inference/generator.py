@@ -10,10 +10,11 @@ class ExpressionGenerator:
 
     
 
-    def generate(self, current_depth=0):
+    def generate(self, current_depth=0, return_depth=False):
         # At max_depth, we MUST generate a number (leaf)
         if current_depth >= self.max_depth:
-            return str(random.randint(self.num_range[0], self.num_range[1]))
+            res = str(random.randint(self.num_range[0], self.num_range[1]))
+            return (res, 0) if return_depth else res
             
         # Below min_depth, we MUST NOT generate a simple number.
         if current_depth < self.min_depth:
@@ -23,12 +24,19 @@ class ExpressionGenerator:
             is_leaf = random.random() < 0.3
             
         if is_leaf:
-            return str(random.randint(self.num_range[0], self.num_range[1]))
+            res = str(random.randint(self.num_range[0], self.num_range[1]))
+            return (res, 0) if return_depth else res
         
         # Otherwise, expand into an operation
         op = random.choice(['+', '-'])
-        left = self.generate(current_depth + 1)
-        right = self.generate(current_depth + 1)
+        if return_depth:
+            left, left_d = self.generate(current_depth + 1, return_depth=True)
+            right, right_d = self.generate(current_depth + 1, return_depth=True)
+            max_d = max(left_d, right_d) + 1
+        else:
+            left = self.generate(current_depth + 1)
+            right = self.generate(current_depth + 1)
+            max_d = 0
 
         if random.random() < self.invalid_rate:    
             error_type = random.choice(['missing_operand_right', 
@@ -40,24 +48,27 @@ class ExpressionGenerator:
                                         'arbitrary'
                                         ])
             if error_type == 'missing_operand_right':
-                return f"{left} +"
+                res = f"{left} +"
             elif error_type == 'missing_operand_left':
-                return f"+ {right}"
+                res = f"+ {right}"
             elif error_type == 'extra_operator++':
-                return f"{left} ++ {right}"
+                res = f"{left} ++ {right}"
             elif error_type == 'extra_operator--':
-                return f"{left} -- {right}"
+                res = f"{left} -- {right}"
             elif error_type == 'unbalanced_paren_right':
-                return f"({left} {op} {right}"
+                res = f"({left} {op} {right}"
             elif error_type == 'unbalanced_paren_left':
-                return f"{left} {op} {right})"
+                res = f"{left} {op} {right})"
             else:  # arbitrary error
-                return self._generate_invalid()
+                res = self._generate_invalid()
+            return (res, max_d) if return_depth else res
         else:
             # Randomly decide to wrap in parentheses for visual structure
             if current_depth > 0:
-                return f"({left} {op} {right})"
-            return f"{left} {op} {right}"
+                res = f"({left} {op} {right})"
+            else:
+                res = f"{left} {op} {right}"
+            return (res, max_d) if return_depth else res
     
     def _generate_invalid(self):
         # Keep numeric tokens within num_range, even for invalid expressions.
