@@ -89,6 +89,17 @@ class ArithmeticEvaluator:
         self.steps.append((f"{left_val} {node.op} {right_val} = {node.value}", expr_now))
         return node.value
 
+    def get_depth(self, node=None):
+        if node is None:
+            node = self.root
+        if node is None:
+            return 0
+        if getattr(node, 'kind', None) == 'num':
+            return 0
+        left_depth = self.get_depth(node.left) if getattr(node, 'left', None) else 0
+        right_depth = self.get_depth(node.right) if getattr(node, 'right', None) else 0
+        return 1 + max(left_depth, right_depth)
+
     def evaluate(self):
         self.steps = []
         self.root = self.parse_expression()
@@ -113,15 +124,16 @@ def eval_expression(expression):
             'expression': expression,
             'problem': problem_statement,
             'solution': "\n".join(answers),
-            'answer': result
-
+            'answer': result,
+            'depth': evaluator.get_depth()
         }
     except Exception:
         return {
             'expression': expression,
             'problem': f"Evaluate: {expression}",
             'solution': "<think>Evaluation ERROR</think>\nFinal Result: ERROR",
-            'answer': "ERROR"
+            'answer': "ERROR",
+            'depth': 0
         }
 
 
@@ -291,6 +303,7 @@ class ModelEvaluator:
         
         test_expressions = []
         test_answers = []
+        test_depths = []
         
         print(f"Generating {num_samples} test expressions...")
         from tqdm import tqdm
@@ -302,6 +315,7 @@ class ModelEvaluator:
             if result['answer'] != 'ERROR':
                 test_expressions.append(expression)
                 test_answers.append(result['answer'])
+                test_depths.append(result.get('depth', 0))
         
         print(f"Generated {len(test_expressions)} valid test expressions")
         
@@ -316,7 +330,7 @@ class ModelEvaluator:
         from tqdm import tqdm
         
         # Process sequentially
-        for i, (expression, ground_truth) in tqdm(enumerate(zip(test_expressions, test_answers)), total=len(test_expressions), desc="Evaluating"):
+        for i, (expression, ground_truth, depth) in tqdm(enumerate(zip(test_expressions, test_answers, test_depths)), total=len(test_expressions), desc="Evaluating"):
             
             prompt = f"Evaluate: {expression}\n<think>\n"
             generated_text = self._generate_solution(prompt, max_length=max_gen_length)
@@ -339,6 +353,7 @@ class ModelEvaluator:
                 sample_outputs.append({
                     'question_number': i + 1,
                         'expression': expression,
+                        'depth': depth,
                         'ground_truth': ground_truth,
                         'predicted': predicted_result,
                         'generated_text': generated_text,
@@ -586,6 +601,7 @@ class ModelEvaluator:
             for i, sample in enumerate(sample_outputs, 1):
                 f.write(f"\nSample {i}:\n")
                 f.write(f"  Expression: {sample['expression']}\n")
+                f.write(f"  Depth: {sample.get('depth', 'N/A')}\n")
                 f.write(f"  Ground Truth: {sample['ground_truth']}\n")
                 f.write(f"  Predicted: {sample['predicted']}\n")
                 f.write(f"  Correct: {sample['correct']}\n")
@@ -600,6 +616,7 @@ class ModelEvaluator:
                 for sample in sample_outputs:
                     f.write(f"Question Number: {sample.get('question_number', 'N/A')}\n")
                     f.write(f"Question: {sample['expression']}\n")
+                    f.write(f"Depth: {sample.get('depth', 'N/A')}\n")
                     f.write(f"Generated text:\n{sample['generated_text']}\n")
                     f.write(f"Result: {sample['predicted']}\n")
                     f.write(f"Expected result: {sample['ground_truth']}\n")
@@ -611,10 +628,11 @@ class ModelEvaluator:
             detailed_csv_path = os.path.join(output_dir, f'all_questions_{timestamp}.csv')
             with open(detailed_csv_path, 'w', newline='') as f:
                 writer = csv.writer(f)
-                writer.writerow(['Question Number', 'Parsable', 'Correct'])
+                writer.writerow(['Question Number', 'Depth', 'Parsable', 'Correct'])
                 for sample in sample_outputs:
                     writer.writerow([
                         sample.get('question_number', 'N/A'),
+                        sample.get('depth', 'N/A'),
                         sample.get('parseable', sample['predicted'] is not None),
                         sample['correct']
                     ])
