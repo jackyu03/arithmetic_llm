@@ -323,11 +323,14 @@ class ModelEvaluator:
             batch_expressions = test_expressions[batch_start:batch_end]
             batch_answers = test_answers[batch_start:batch_end]
             
-            # Format prompts for batch (Must exactly match the training target strings)
-            batch_prompts = [f"Evaluate: {expr}\n<think>\n" for expr in batch_expressions]
-            
-            # Generate solutions for batch
-            batch_generated_texts = self._generate_batch(batch_prompts, max_length=max_gen_length)
+            # Instead of batching which is currently hanging due to padding logic, 
+            # we use the proven sequential _generate_solution which is lightning fast.
+            # We process them sequentially but still chunk them into the progress bar logs.
+            batch_generated_texts = []
+            for expr in batch_expressions:
+                prompt = f"Evaluate: {expr}\n<think>\n"
+                generated_text = self._generate_solution(prompt, max_length=max_gen_length)
+                batch_generated_texts.append(generated_text)
             
             # Process batch results
             for i, (expression, ground_truth, generated_text) in enumerate(
