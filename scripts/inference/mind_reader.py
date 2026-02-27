@@ -54,12 +54,11 @@ class MindReader(InteractiveArithmeticSolver):
     
     def render_attention(self, tokens: list[str], attentions: torch.Tensor, current_token: str):
         """Render the tokens colored by their attention weight."""
-        # attentions shape: (seq_len,)
-        # Use \033[H (cursor to home) and \033[J (clear to end of screen) 
-        # instead of \033[2J (clear entire screen) to stop flickering!
-        sys.stdout.write("\033[H\033[J") 
-        print("=" * 60)
-        print("""
+        # Use a single write call with a full string buffer to prevent flickering
+        # \033[H (cursor to home) and \033[J (clear to end of screen)
+        buffer = "\033[H\033[J"
+        buffer += "=" * 60 + "\n"
+        buffer += """
         ▗▖  ▗▖▗▄▄▄▖▗▖  ▗▖▗▄▄▄  ▗▄▄▖ ▗▄▄▄▖ ▗▄▖ ▗▄▄▄  ▗▄▄▄▖▗▄▄▖ 
         ▐▛▚▞▜▌  █  ▐▛▚▖▐▌▐▌  █ ▐▌ ▐▌▐▌   ▐▌ ▐▌▐▌  █ ▐▌   ▐▌ ▐▌
         ▐▌  ▐▌  █  ▐▌ ▝▜▌▐▌  █ ▐▛▀▚▖▐▛▀▀▘▐▛▀▜▌▐▌  █ ▐▛▀▀▘▐▛▀▚▖
@@ -73,21 +72,22 @@ class MindReader(InteractiveArithmeticSolver):
         ▐▌  ▐▌  █   ▝▀▚▖▐▌ ▐▌▐▛▀▜▌▐▌     █   ▗▞▘  ▐▛▀▀▘▐▛▀▚▖  
          ▝▚▞▘ ▗▄█▄▖▗▄▄▞▘▝▚▄▞▘▐▌ ▐▌▐▙▄▄▖▗▄█▄▖▐▙▄▄▄▖▐▙▄▄▖▐▌ ▐▌ 
         
-        """)
-        print("=" * 60)
-        print("\nWatching model attention in real-time...\n")
+        \n"""
+        buffer += "=" * 60 + "\n\n"
+        buffer += "Watching model attention in real-time...\n\n"
         
-        output = ""
+        context_str = ""
         for token, weight in zip(tokens, attentions.tolist()):
             color = get_color_ansi(weight)
-            # Remove special markers for raw printing
             clean_tok = token.replace("</w>", "")
-            output += f"{color}{clean_tok}{RESET_ANSI}"
+            context_str += f"{color}{clean_tok}{RESET_ANSI}"
             
-        print("Context:")
-        print(output)
-        print(f"\nCurrently generating: -> {current_token} <-")
-        print("\n" + "=" * 60)
+        buffer += "Context:\n"
+        buffer += f"{context_str}\n"
+        buffer += f"\nCurrently generating: -> {current_token} <-\n"
+        buffer += "\n" + "=" * 60 + "\n"
+        
+        sys.stdout.write(buffer)
         sys.stdout.flush()
 
     def solve_with_visualization(self, expression: str, delay: float = 0.1):
