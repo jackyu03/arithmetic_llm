@@ -35,41 +35,37 @@ class CurriculumSampler(Sampler):
         self.current_step = min(self.total_steps, self.current_step + steps)
         
     def __iter__(self) -> Iterator[int]:
-        # Progress from 0.0 (start) to 1.0 (end of curriculum)
-        progress = min(1.0, self.current_step / max(1, self.total_steps))
-        
-        # We want probability to favor low complexity early on.
-        # Let target complexity roughly match progress.
-        # We use a gaussian-like weight centered around the current progress target.
-        # At progress=1.0, we can transition to uniform sampling.
-        if progress >= 1.0:
-            indices = np.random.permutation(self.num_samples).tolist()
-        else:
-            # Target complexity grows from 0 to 1
-            target_c = progress
-            # Spread of the sampling window (starts narrow, gets wider)
-            sigma = 0.1 + (progress * 0.4) 
+         # Yield indices iteratively, updating weights based on the current step.
+        # We calculate weights once per batch to avoid massive overhead.
+        for i in range(0, self.num_samples, self.batch_size):
+            progress = min(1.0, self.current_step / max(1, self.total_steps))
+            batch_size_current = min(self.batch_size, self.num_samples - i)
             
-            # Distance from target complexity
-            dist = np.abs(self.norm_complexities - target_c)
-            # Gaussian weights
-            weights = np.exp(-(dist**2) / (2 * sigma**2))
-            
-            # Ensure minimum probability so no sample is mathematically impossible to pick
-            weights = np.clip(weights, a_min=1e-5, a_max=None)
-            weights = weights / weights.sum()
-            
-            # Generate indices WITHOUT replacement
-            # This returns all N indices, but probabilistically sorted so higher weight items appear earlier
-            indices = np.random.choice(
-                self.num_samples, 
-                size=self.num_samples, 
-                replace=False, 
-                p=weights
-            ).tolist()
-        
-        
-        return iter(indices)
+            if progress >= 1.0:
+                batch_indices = np.random.choice(self.num_samples, size=batch_size_current, replace=True).tolist()
+            else:
+                target_c = progress
+                sigma = 0.1 + (progress * 0.4) 
+                
+                dist = np.abs(self.norm_complexities - target_c)
+                weights = np.exp(-(dist**2) / (2 * sigma**2))
+                
+                weights = np.clip(weights, a_min=1e-5, a_max=None)
+                weights = weights / weights.sum()
+                
+                # IMPORTANT: We MUST use replace=True.
+                # Using replace=False on a massive array means items with lower weights 
+                # are forced to the end of the list with 100% probability, causing the 
+                # end of the epoch to consist entirely of the 'wrong' complexities.
+                batch_indices = np.random.choice(
+                    self.num_samples, 
+                    size=batch_size_current, 
+                    replace=True, 
+                    p=weights
+                ).tolist()
+                
+            for idx in batch_indices:
+                yield idx
 
     def __len__(self) -> int:
         return self.num_samples
