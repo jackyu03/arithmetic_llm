@@ -10,33 +10,59 @@ class ExpressionGenerator:
 
     
 
-    def generate(self, current_depth=0, return_depth=False):
-        # At max_depth, we MUST generate a number (leaf)
-        if current_depth >= self.max_depth:
+    def generate(self, current_depth=0, return_depth=False, target_depth=None):
+        # Choose target depth for the entire expression at the root
+        if current_depth == 0 and target_depth is None:
+            target_depth = random.randint(self.min_depth, self.max_depth)
+            
+        # Fallback if somehow not set
+        if target_depth is None:
+            target_depth = self.max_depth
+
+        # At target_depth, we MUST generate a number (leaf)
+        if current_depth >= target_depth:
             res = str(random.randint(self.num_range[0], self.num_range[1]))
             return (res, 0) if return_depth else res
             
-        # Below min_depth, we MUST NOT generate a simple number.
-        if current_depth < self.min_depth:
-            is_leaf = False
-        else:
-            # 30% chance to be a leaf node early (unless we're at the root or below min_depth)
-            is_leaf = random.random() < 0.3
-            
-        if is_leaf:
-            res = str(random.randint(self.num_range[0], self.num_range[1]))
-            return (res, 0) if return_depth else res
+        # Below target_depth, we must expand at least one path to reach target_depth.
+        # But we don't want every branch to be a straight line to target_depth.
+        # 30% chance to be a leaf node early, EXCEPT if doing so makes it impossible 
+        # for ANY branch to reach target_depth.
+        # Since we are expanding an operation here, one of the two branches MUST 
+        # be allowed to reach the target depth.
         
-        # Otherwise, expand into an operation
         op = random.choice(['+', '-'])
-        if return_depth:
-            left, left_d = self.generate(current_depth + 1, return_depth=True)
-            right, right_d = self.generate(current_depth + 1, return_depth=True)
-            max_d = max(left_d, right_d) + 1
+        
+        # Decide which branch is the 'deep' branch that will definitely reach target_depth
+        deep_branch_is_left = random.choice([True, False])
+        
+        # Generate Left Branch
+        if current_depth < target_depth - 1 and not deep_branch_is_left and random.random() < 0.3:
+            # We can safely terminate early because the right branch will go deep
+            left_res = str(random.randint(self.num_range[0], self.num_range[1]))
+            left_d = 0
+            left = left_res
         else:
-            left = self.generate(current_depth + 1)
-            right = self.generate(current_depth + 1)
-            max_d = 0
+            if return_depth:
+                left, left_d = self.generate(current_depth + 1, return_depth=True, target_depth=target_depth)
+            else:
+                left = self.generate(current_depth + 1, target_depth=target_depth)
+                left_d = 0 # Dummy value
+
+        # Generate Right Branch
+        if current_depth < target_depth - 1 and deep_branch_is_left and random.random() < 0.3:
+            # We can safely terminate early because the left branch already went deep
+            right_res = str(random.randint(self.num_range[0], self.num_range[1]))
+            right_d = 0
+            right = right_res
+        else:
+            if return_depth:
+                right, right_d = self.generate(current_depth + 1, return_depth=True, target_depth=target_depth)
+            else:
+                right = self.generate(current_depth + 1, target_depth=target_depth)
+                right_d = 0 # Dummy value
+
+        max_d = max(left_d, right_d) + 1
 
         if random.random() < self.invalid_rate:    
             error_type = random.choice(['missing_operand_right', 
