@@ -16,29 +16,39 @@ import torch.nn.functional as F
 from core.inference.interactive import InteractiveArithmeticSolver
 
 def get_color_ansi(weight: float) -> str:
-    """Map a weight [0, 1] to a thermal ANSI background color (black -> red -> yellow -> white)."""
+    """Map a weight [0, 1] to a thermal ANSI background color."""
     # Exaggerate small weights for visibility
     w = weight ** 0.5
     
-    # Simple color ramp: 
-    # 0.0 -> Black (0, 0, 0)
-    # 0.33 -> Red (255, 0, 0)
-    # 0.66 -> Yellow (255, 255, 0)
-    # 1.0 -> White (255, 255, 255)
+    # Brighter color ramp for better terminal contrast:
+    # 0.0 -> Dark Blue (0, 0, 80) [Low attention]
+    # 0.33 -> Bright Cyan/Green (0, 200, 200) [Medium/Low]
+    # 0.66 -> Yellow (255, 255, 0) [High]
+    # 1.0 -> White (255, 255, 255) [Max]
     
     if w < 0.33:
-        r = int((w / 0.33) * 255)
-        g, b = 0, 0
+        # Dark Blue to Bright Cyan/Green
+        ratio = w / 0.33
+        r = 0
+        g = int(ratio * 200)
+        b = int(80 + ratio * 120)
+        fg_color = "\033[38;2;200;200;200m" # Light gray text
     elif w < 0.66:
-        r = 255
-        g = int(((w - 0.33) / 0.33) * 255)
-        b = 0
+        # Bright Cyan/Green to Yellow
+        ratio = (w - 0.33) / 0.33
+        r = int(ratio * 255)
+        g = int(200 + ratio * 55)
+        b = int(200 - ratio * 200)
+        fg_color = "\033[38;2;0;0;0m" # Black text
     else:
+        # Yellow to White
+        ratio = (w - 0.66) / 0.34
         r = 255
         g = 255
-        b = int(((w - 0.66) / 0.34) * 255)
+        b = int(ratio * 255)
+        fg_color = "\033[38;2;0;0;0m" # Black text
         
-    return f"\033[48;2;{r};{g};{b}m\033[38;2;255;255;255m"
+    return f"\033[48;2;{r};{g};{b}m{fg_color}"
 
 RESET_ANSI = "\033[0m"
 
@@ -47,7 +57,9 @@ class MindReader(InteractiveArithmeticSolver):
     def render_attention(self, tokens: list[str], attentions: torch.Tensor, current_token: str):
         """Render the tokens colored by their attention weight."""
         # attentions shape: (seq_len,)
-        sys.stdout.write("\033[H\033[2J") # Clear screen
+        # Use \033[H (cursor to home) and \033[J (clear to end of screen) 
+        # instead of \033[2J (clear entire screen) to stop flickering!
+        sys.stdout.write("\033[H\033[J") 
         print("=" * 60)
         print("""
         ▗▖  ▗▖▗▄▄▄▖▗▖  ▗▖▗▄▄▄  ▗▄▄▖ ▗▄▄▄▖ ▗▄▖ ▗▄▄▄  ▗▄▄▄▖▗▄▄▖ 
