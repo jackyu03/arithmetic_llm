@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Command-line interface for model evaluation."""
 
+import random
 import argparse
 from core.eval.evaluator import ModelEvaluator
 
@@ -83,6 +84,13 @@ def main():
         default=512,
         help="Maximum generation length in tokens (default: 512)"
     )
+
+    parser.add_argument(
+        "--seed",
+        type=int,
+        default=42,
+        help="Random seed for deterministic evaluation generation"
+    )
     
     parser.add_argument(
         "--temperature",
@@ -123,6 +131,13 @@ def main():
         )
     else:
         device = args.device
+
+    # Enforce deterministic random seeds for identically reproducible datasets
+    random.seed(args.seed)
+    import torch
+    torch.manual_seed(args.seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(args.seed)
     
     # Display configuration
     print("\n" + "=" * 60)

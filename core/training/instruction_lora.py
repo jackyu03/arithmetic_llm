@@ -81,16 +81,14 @@ def train_instruction_model_lora(
     lora_config.validate()
     config.lora_config = lora_config
 
-    # Create unique output directory with timestamp
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
-    output_dir = os.path.join(output_dir, f"instruction_lora_{timestamp}")
+    # Create output directory
     os.makedirs(output_dir, exist_ok=True)
 
     # Initialize wandb if requested
     if getattr(config, "use_wandb", False) and wandb is not None:
         wandb.init(
             project="arithmetic-llm",
-            name=f"instruction_lora_{timestamp}",
+            name=f"instruction_lora",
             config=config.to_dict(),
         )
         if model_config is not None:
@@ -178,6 +176,10 @@ def train_instruction_model_lora(
 
     # Calculate total training steps
     total_steps = len(train_dataloader) * config.num_epochs
+
+    # Sync curriculum sampler timescale with the actual total steps
+    if train_sampler is not None:
+        train_sampler.total_steps = total_steps
 
     # Initialize scheduler
     scheduler = get_linear_schedule_with_warmup(

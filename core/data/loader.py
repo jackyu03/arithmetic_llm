@@ -43,7 +43,7 @@ class CurriculumSampler(Sampler):
         # We use a gaussian-like weight centered around the current progress target.
         # At progress=1.0, we can transition to uniform sampling.
         if progress >= 1.0:
-            weights = np.ones(self.num_samples)
+            indices = np.random.permutation(self.num_samples).tolist()
         else:
             # Target complexity grows from 0 to 1
             target_c = progress
@@ -56,17 +56,18 @@ class CurriculumSampler(Sampler):
             weights = np.exp(-(dist**2) / (2 * sigma**2))
             
             # Ensure minimum probability so no sample is mathematically impossible to pick
-            weights = np.clip(weights, a_min=0.01, a_max=None)
+            weights = np.clip(weights, a_min=1e-5, a_max=None)
+            weights = weights / weights.sum()
             
-        weights = weights / weights.sum()
+            # Generate indices WITHOUT replacement
+            # This returns all N indices, but probabilistically sorted so higher weight items appear earlier
+            indices = np.random.choice(
+                self.num_samples, 
+                size=self.num_samples, 
+                replace=False, 
+                p=weights
+            ).tolist()
         
-        # Generate indices for a full pseudo-epoch
-        indices = np.random.choice(
-            self.num_samples, 
-            size=self.num_samples, 
-            replace=True, 
-            p=weights
-        ).tolist()
         
         return iter(indices)
 
@@ -201,8 +202,8 @@ class ArithmeticDataset(Dataset):
                     # Strip leading '<think>' from target if present
                     target = target.strip()
                     if target.startswith('<think>'):
-                        # Keep the <think> tag for consistency
-                        pass
+                        # Remove it so we don't duplicate it with the prompt's <think>
+                        target = target[len('<think>'):].lstrip()
 
                     # Concatenate prompt and target for training
                     text = prompt + ' ' + target
