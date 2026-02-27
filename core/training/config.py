@@ -42,6 +42,7 @@ class TrainingConfig:
     )
     use_curriculum: bool = False
     curriculum_steps: int = 10000
+    num_workers: int = 4
     use_wandb: bool = False
     use_contrastive: bool = False
     contrastive_weight: float = 0.3
@@ -88,7 +89,10 @@ class TrainingConfig:
             raise ValueError(
                 f"eval_every must be positive, got {self.eval_every}"
             )
-        
+        if self.num_workers < 0:
+            raise ValueError(
+                f"num_workers must be non-negative, got {self.num_workers}"
+            )
         if self.device not in ["cuda", "mps", "cpu"]:
             raise ValueError(
                 f"device must be 'cuda', 'mps', or 'cpu', got {self.device}"

@@ -148,6 +148,12 @@ def main():
         help="Save merged model after training"
     )
 
+    parser.add_argument(
+        "--num-workers",
+        type=int,
+        default=4,
+        help="Number of dataloader worker threads (default: 4)"
+    )
     # Model configuration
     parser.add_argument(
         "--model-config",
@@ -183,6 +189,7 @@ def main():
             device=device,
             use_wandb=args.wandb,
             use_curriculum=args.use_curriculum,
+            num_workers=args.num_workers,
         )
 
     target_modules = [

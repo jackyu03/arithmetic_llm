@@ -108,15 +108,17 @@ def train_instruction_model(
     # Create dataloaders
     use_contrastive = getattr(config, "use_contrastive", False)
     print("Creating dataloaders...")
-    train_dataloader, val_dataloader = create_dataloaders(
+    train_dataloader, val_dataloader, train_sampler = create_dataloaders(
         corpus_path=instruction_corpus_path,
         tokenizer=tokenizer,
         batch_size=config.batch_size,
         max_length=max_seq_length,
         train_split=0.9,
         shuffle=True,
-        num_workers=0,
+        num_workers=getattr(config, 'num_workers', 4),
         mode="instruction",
+        use_curriculum=getattr(config, 'use_curriculum', False),
+        curriculum_steps=getattr(config, 'curriculum_steps', 10000),
         use_contrastive=use_contrastive,
     )
     print(f"Training batches: {len(train_dataloader)}")
@@ -192,6 +194,7 @@ def train_instruction_model(
                 global_step=global_step,
                 output_dir=output_dir,
                 tokenizer_vocab_size=vocab_size,
+                train_sampler=train_sampler
             )
         else:
             train_loss, global_step = train_epoch(
@@ -203,7 +206,8 @@ def train_instruction_model(
                 epoch=epoch + 1,
                 global_step=global_step,
                 output_dir=output_dir,
-                tokenizer_vocab_size=vocab_size
+                tokenizer_vocab_size=vocab_size,
+                train_sampler=train_sampler
             )
         
         # Evaluate on validation set

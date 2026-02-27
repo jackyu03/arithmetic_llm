@@ -131,6 +131,12 @@ def main():
         help="Temperature for contrastive margin (default: 0.05, lower = stronger push)"
     )
     
+    parser.add_argument(
+        "--num-workers",
+        type=int,
+        default=4,
+        help="Number of dataloader worker threads (default: 4)"
+    )
     # Model configuration
     parser.add_argument(
         "--model-config",
@@ -174,6 +180,7 @@ def main():
             contrastive_weight=args.contrastive_weight,
             contrastive_temperature=args.contrastive_temperature,
             use_curriculum=args.use_curriculum,
+            num_workers=args.num_workers,
         )
     
     # Load model configuration if provided
