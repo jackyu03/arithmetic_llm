@@ -107,6 +107,12 @@ def main():
         help="Enable Weights & Biases logging for training metrics"
     )
 
+    parser.add_argument(
+        "--use-curriculum",
+        action="store_true",
+        help="Use curriculum learning sampling (anneals from easy to hard)"
+    )
+
     # LoRA configuration
     parser.add_argument(
         "--lora-rank",
@@ -176,6 +182,7 @@ def main():
             save_every=args.save_every,
             device=device,
             use_wandb=args.wandb,
+            use_curriculum=args.use_curriculum,
         )
 
     target_modules = [

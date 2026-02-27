@@ -91,6 +91,12 @@ def main():
         default="auto",
         help="Device for training: 'cuda', 'mps', 'cpu', or 'auto' (default: auto)"
     )
+
+    parser.add_argument(
+        "--use-curriculum",
+        action="store_true",
+        help="Use curriculum learning sampling (anneals from easy to hard)"
+    )
     
     parser.add_argument(
         "--wandb",
@@ -175,6 +181,7 @@ def main():
             save_every=args.save_every,
             device=device,
             use_wandb=args.wandb,
+            use_curriculum=args.use_curriculum,
         )
     
     # Load or create model configuration

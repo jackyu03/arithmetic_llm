@@ -40,6 +40,8 @@ class TrainingConfig:
         else "mps" if torch.backends.mps.is_available() 
         else "cpu"
     )
+    use_curriculum: bool = False
+    curriculum_steps: int = 10000
     use_wandb: bool = False
     use_contrastive: bool = False
     contrastive_weight: float = 0.3

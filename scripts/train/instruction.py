@@ -104,6 +104,12 @@ def main():
         action="store_true",
         help="Enable Weights & Biases logging for training metrics"
     )
+
+    parser.add_argument(
+        "--use-curriculum",
+        action="store_true",
+        help="Use curriculum learning sampling (anneals from easy to hard)"
+    )
     
     parser.add_argument(
         "--contrastive",
@@ -167,6 +173,7 @@ def main():
             use_contrastive=args.contrastive,
             contrastive_weight=args.contrastive_weight,
             contrastive_temperature=args.contrastive_temperature,
+            use_curriculum=args.use_curriculum,
         )
     
     # Load model configuration if provided
