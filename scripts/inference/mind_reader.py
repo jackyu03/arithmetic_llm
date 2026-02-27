@@ -17,36 +17,34 @@ from core.inference.interactive import InteractiveArithmeticSolver
 
 def get_color_ansi(weight: float) -> str:
     """Map a weight [0, 1] to a thermal ANSI background color."""
-    # Exaggerate small weights for visibility
-    w = weight ** 0.5
+    w = weight ** 0.3
     
-    # Brighter color ramp for better terminal contrast:
-    # 0.0 -> Dark Blue (0, 0, 80) [Low attention]
-    # 0.33 -> Bright Cyan/Green (0, 200, 200) [Medium/Low]
-    # 0.66 -> Yellow (255, 255, 0) [High]
-    # 1.0 -> White (255, 255, 255) [Max]
+    # Custom color ramp for mind reader:
+    # 0.00 -> White (255, 255, 255) [Low attention]
+    # 0.33 -> Orange (255, 165, 0) [Medium/Low attention]
+    # 0.66 -> Red (255, 0, 0) [Medium/High attention]
+    # 1.00 -> Purple (128, 0, 128) [Max attention]
     
     if w < 0.33:
-        # Dark Blue to Bright Cyan/Green
+        # White to Orange
         ratio = w / 0.33
-        r = 0
-        g = int(ratio * 200)
-        b = int(80 + ratio * 120)
-        fg_color = "\033[38;2;200;200;200m" # Light gray text
-    elif w < 0.66:
-        # Bright Cyan/Green to Yellow
-        ratio = (w - 0.33) / 0.33
-        r = int(ratio * 255)
-        g = int(200 + ratio * 55)
-        b = int(200 - ratio * 200)
-        fg_color = "\033[38;2;0;0;0m" # Black text
-    else:
-        # Yellow to White
-        ratio = (w - 0.66) / 0.34
         r = 255
-        g = 255
-        b = int(ratio * 255)
-        fg_color = "\033[38;2;0;0;0m" # Black text
+        g = 255 - int(ratio * 90)
+        b = 255 - int(ratio * 255)
+    elif w < 0.66:
+        # Orange to Red
+        ratio = (w - 0.33) / 0.33
+        r = 255
+        g = 165 - int(ratio * 165)
+        b = 0
+    else:
+        # Red to Purple
+        ratio = (w - 0.66) / 0.34
+        r = 255 - int(ratio * 127)
+        g = 0
+        b = int(ratio * 128)
+        
+    fg_color = "\033[38;2;0;0;0m" if w < 0.5 else "\033[38;2;255;255;255m"
         
     return f"\033[48;2;{r};{g};{b}m{fg_color}"
 
