@@ -12,6 +12,7 @@ from core.data.corpus import CorpusGenerator
 
 def _generate_instruction_corpus(
     num_samples: int,
+    target_tokens: int,
     max_depth: int,
     num_range: Tuple[int, int],
     invalid_rate: float,
@@ -19,6 +20,7 @@ def _generate_instruction_corpus(
 ) -> None:
     os.makedirs(os.path.dirname(output_path), exist_ok=True)
     generator = CorpusGenerator(
+        target_tokens=target_tokens,
         num_samples=num_samples,
         max_depth=max_depth,
         num_range=num_range,
@@ -44,7 +46,8 @@ def main() -> None:
     parser = argparse.ArgumentParser(
         description="Generate a mixed instruction corpus with valid and invalid samples."
     )
-    parser.add_argument("--num-samples", type=int, default=20000)
+    parser.add_argument("--num-samples", type=int, default=None, help="Legacy sample count")
+    parser.add_argument("--target-tokens", type=int, default=None, help="Target total tokens to generate")
     parser.add_argument("--max-depth", type=int, default=5)
     parser.add_argument("--num-range", type=int, nargs=2, default=[1, 20])
     parser.add_argument("--invalid-rate", type=float, default=0.1)
@@ -56,8 +59,12 @@ def main() -> None:
     parser.add_argument("--seed", type=int, default=None)
     args = parser.parse_args()
 
-    if args.num_samples <= 0:
+    if args.num_samples is None and args.target_tokens is None:
+        parser.error("Must provide either --num-samples or --target-tokens")
+    if args.num_samples is not None and args.num_samples <= 0:
         parser.error("num-samples must be positive")
+    if args.target_tokens is not None and args.target_tokens <= 0:
+        parser.error("target-tokens must be positive")
     if args.max_depth <= 0:
         parser.error("max-depth must be positive")
     if args.num_range[0] >= args.num_range[1]:
@@ -67,28 +74,39 @@ def main() -> None:
 
     num_range = (args.num_range[0], args.num_range[1])
 
+    # Apportion targets
+    error_samples = int(args.num_samples * args.invalid_rate) if args.num_samples else None
+    correct_samples = int(args.num_samples * (1 - args.invalid_rate)) if args.num_samples else None
+    
+    error_tokens = int(args.target_tokens * args.invalid_rate) if args.target_tokens else None
+    correct_tokens = int(args.target_tokens * (1 - args.invalid_rate)) if args.target_tokens else None
     # Generate to temp files to avoid persisting intermediate corpora
     with tempfile.TemporaryDirectory() as tmpdir:
         error_path = os.path.join(tmpdir, "instruction_corpus_error.txt")
         correct_path = os.path.join(tmpdir, "instruction_corpus_correct.txt")
 
-        _generate_instruction_corpus(
-            num_samples=args.num_samples,
-            max_depth=args.max_depth,
-            num_range=num_range,
-            invalid_rate=args.invalid_rate,
-            output_path=error_path,
-        )
+        if args.invalid_rate > 0.0:
+            _generate_instruction_corpus(
+                num_samples=error_samples,
+                target_tokens=error_tokens,
+                max_depth=args.max_depth,
+                num_range=num_range,
+                invalid_rate=1.0, # All errors
+                output_path=error_path,
+            )
 
         _generate_instruction_corpus(
-            num_samples=args.num_samples,
+            num_samples=correct_samples,
+            target_tokens=correct_tokens,
             max_depth=args.max_depth,
             num_range=num_range,
             invalid_rate=0.0,
             output_path=correct_path,
         )
 
-        lines = _read_lines(error_path) + _read_lines(correct_path)
+        lines = _read_lines(correct_path)
+        if args.invalid_rate > 0.0:
+            lines += _read_lines(error_path)
 
     # Shuffle and write mixed
     if args.seed is not None:

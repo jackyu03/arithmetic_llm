@@ -163,17 +163,22 @@ class ArithmeticTransformer(nn.Module):
     def forward(
         self,
         input_ids: torch.Tensor,
-        attention_mask: Optional[torch.Tensor] = None
-    ) -> torch.Tensor:
+        attention_mask: Optional[torch.Tensor] = None,
+        output_attentions: bool = False
+    ) -> torch.Tensor | Tuple[torch.Tensor, Tuple[torch.Tensor, ...]]:
         """Forward pass through the model.
         
         Args:
             input_ids: Token IDs of shape (batch_size, seq_length)
             attention_mask: Optional padding mask of shape (batch_size, seq_length)
                            where 1 indicates valid tokens and 0 indicates padding
-        
+            output_attentions: Whether to return attention weights
+
         Returns:
-            Logits of shape (batch_size, seq_length, vocab_size)
+            If output_attentions is False:
+                Logits of shape (batch_size, seq_length, vocab_size)
+            If output_attentions is True:
+                Tuple of (logits, tuple_of_attention_weights)
         """
         batch_size, seq_length = input_ids.shape
         device = input_ids.device
@@ -198,16 +203,24 @@ class ArithmeticTransformer(nn.Module):
         else:
             combined_mask = causal_mask.unsqueeze(0)  # (1, seq_length, seq_length)
         
+        all_attentions = () if output_attentions else None
         # Pass through transformer layers
         for layer in self.layers:
-            hidden_states = layer(hidden_states, combined_mask)
+            if output_attentions:
+                hidden_states, attn_weights = layer(hidden_states, combined_mask, output_attentions=True)
+                all_attentions = all_attentions + (attn_weights,)
+            else:
+                hidden_states, _ = layer(hidden_states, combined_mask, output_attentions=False)
         
         # Apply final layer normalization
         hidden_states = self.layer_norm(hidden_states)
         
         # Project to vocabulary
         logits = self.output_projection(hidden_states)
-        
+
+        if output_attentions:
+            return logits, all_attentions
+            
         return logits
 
     def inject_lora(self, config: LoRAConfig) -> None:
@@ -402,7 +415,8 @@ class ArithmeticTransformer(nn.Module):
         eos_token_id: Optional[int] = None,
         attention_mask: Optional[torch.Tensor] = None,
         forbid_token_ids_fn: Optional[Callable[[torch.Tensor], List[Set[int]]]] = None,
-    ) -> torch.Tensor:
+        output_attentions: bool = False
+    ) -> torch.Tensor | Tuple[torch.Tensor, Tuple[torch.Tensor, ...]]:
         """Generate text autoregressively with temperature sampling.
         
         Args:
@@ -413,11 +427,13 @@ class ArithmeticTransformer(nn.Module):
             top_p: Nucleus sampling threshold (only sample from top p probability mass)
             eos_token_id: Optional end-of-sequence token ID to stop generation
             attention_mask: Optional padding mask of shape (batch_size, seq_length)
+            output_attentions: Whether to capture and return attention weights from generation
             forbid_token_ids_fn: Optional; (generated) -> list of sets of token IDs to
                 mask to -inf per batch item (e.g. avoid newline/Step mid-step).
         
         Returns:
-            Generated token IDs of shape (batch_size, generated_length)
+            If output_attentions=False, just Generated token IDs.
+            If True, Tuple of (Generated tokens, List of attentions matching generated length)
         """
         self.eval()
         batch_size = input_ids.shape[0]
@@ -430,11 +446,17 @@ class ArithmeticTransformer(nn.Module):
         if attention_mask is not None:
             attention_mask = attention_mask.to(device)
         
+        captured_attentions = [] if output_attentions else None
+
         with torch.no_grad():
             while generated.shape[1] < max_length:
                 # Forward pass
-                logits = self.forward(generated, attention_mask=attention_mask)
-                
+                if output_attentions:
+                    logits, attentions = self.forward(generated, attention_mask=attention_mask, output_attentions=True)
+                    captured_attentions.append(attentions)
+                else:
+                    logits = self.forward(generated, attention_mask=attention_mask, output_attentions=False)
+
                 # Get logits for the last token
                 next_token_logits = logits[:, -1, :]
                 
@@ -499,7 +521,8 @@ class ArithmeticTransformer(nn.Module):
                 # Stop if all sequences are finished
                 if eos_token_id is not None and finished.all():
                     break
-        
+        if output_attentions:
+            return generated, tuple(captured_attentions)
         return generated
 
 
@@ -540,21 +563,23 @@ class TransformerLayer(nn.Module):
     def forward(
         self,
         hidden_states: torch.Tensor,
-        attention_mask: Optional[torch.Tensor] = None
-    ) -> torch.Tensor:
+        attention_mask: Optional[torch.Tensor] = None,
+        output_attentions: bool = False
+    ) -> Tuple[torch.Tensor, Optional[torch.Tensor]]:
         """Forward pass through transformer layer.
         
         Args:
             hidden_states: Input of shape (batch_size, seq_length, d_model)
             attention_mask: Optional mask of shape (batch_size, seq_length, seq_length)
-        
+            output_attentions: Whether to capture and return attention weights
+
         Returns:
-            Output of shape (batch_size, seq_length, d_model)
+            Tuple of (output shape (batch_size, seq_length, d_model), attention_weights)
         """
         # Self-attention with residual connection and layer norm (pre-norm)
         residual = hidden_states
         hidden_states = self.norm1(hidden_states)
-        hidden_states = self.self_attention(hidden_states, attention_mask)
+        hidden_states, attn_weights = self.self_attention(hidden_states, attention_mask, output_attentions=output_attentions)
         hidden_states = self.dropout1(hidden_states)
         hidden_states = residual + hidden_states
         
@@ -565,7 +590,7 @@ class TransformerLayer(nn.Module):
         hidden_states = self.dropout2(hidden_states)
         hidden_states = residual + hidden_states
         
-        return hidden_states
+        return hidden_states, attn_weights
 
 
 class MultiHeadAttention(nn.Module):
@@ -601,16 +626,18 @@ class MultiHeadAttention(nn.Module):
     def forward(
         self,
         hidden_states: torch.Tensor,
-        attention_mask: Optional[torch.Tensor] = None
-    ) -> torch.Tensor:
+        attention_mask: Optional[torch.Tensor] = None,
+        output_attentions: bool = False
+    ) -> Tuple[torch.Tensor, Optional[torch.Tensor]]:
         """Forward pass through multi-head attention.
         
         Args:
             hidden_states: Input of shape (batch_size, seq_length, d_model)
             attention_mask: Optional mask of shape (batch_size, seq_length, seq_length)
-        
+            output_attentions: Whether to capture and return attention weights
+
         Returns:
-            Output of shape (batch_size, seq_length, d_model)
+            Tuple of (Output shape (batch_size, seq_length, d_model), attention_probs)
         """
         batch_size, seq_length, _ = hidden_states.shape
         
@@ -644,10 +671,10 @@ class MultiHeadAttention(nn.Module):
         
         # Compute attention probabilities
         attention_probs = F.softmax(attention_scores, dim=-1)
-        attention_probs = self.dropout(attention_probs)
+        attention_probs_dropped = self.dropout(attention_probs)
         
         # Apply attention to values
-        context = torch.matmul(attention_probs, v)
+        context = torch.matmul(attention_probs_dropped, v)
         
         # Reshape back to (batch_size, seq_length, d_model)
         context = context.transpose(1, 2).contiguous()
@@ -656,7 +683,9 @@ class MultiHeadAttention(nn.Module):
         # Apply output projection
         output = self.out_proj(context)
         
-        return output
+        if output_attentions:
+            return output, attention_probs
+        return output, None
 
 
 class FeedForward(nn.Module):

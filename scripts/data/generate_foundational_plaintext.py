@@ -63,7 +63,8 @@ def main() -> None:
     parser = argparse.ArgumentParser(
         description="Generate foundational corpus and save as shuffled plain text."
     )
-    parser.add_argument("--num-samples", type=int, required=True)
+    parser.add_argument("--num-samples", type=int, default=None, help="Legacy sample count")
+    parser.add_argument("--target-tokens", type=int, default=None, help="Target total tokens to generate")
     parser.add_argument("--max-depth", type=int, default=5)
     parser.add_argument("--num-range", type=int, nargs=2, default=[1, 20])
     parser.add_argument("--invalid-rate", type=float, default=0.1)
@@ -86,8 +87,12 @@ def main() -> None:
     )
     args = parser.parse_args()
 
-    if args.num_samples <= 0:
+    if args.num_samples is None and args.target_tokens is None:
+        parser.error("Must provide either --num-samples or --target-tokens")
+    if args.num_samples is not None and args.num_samples <= 0:
         parser.error("num-samples must be positive")
+    if args.target_tokens is not None and args.target_tokens <= 0:
+        parser.error("target-tokens must be positive")
     if args.max_depth <= 0:
         parser.error("max-depth must be positive")
     if args.num_range[0] >= args.num_range[1]:
@@ -100,6 +105,7 @@ def main() -> None:
     with tempfile.TemporaryDirectory() as tmpdir:
         jsonl_path = os.path.join(tmpdir, "foundational_corpus.jsonl")
         generator = CorpusGenerator(
+            target_tokens=args.target_tokens,
             num_samples=args.num_samples,
             max_depth=args.max_depth,
             num_range=num_range,
