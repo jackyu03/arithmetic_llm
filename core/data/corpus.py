@@ -40,9 +40,10 @@ def _count_tokens(text: str, tokenizer_type: str = "digit") -> int:
     # Fallback to simple split if transformers isn't available
     return len(text.split())
 
-def _generate_chunk(chunk_size: int, max_depth: int, num_range: Tuple[int, int], invalid_rate: float, tokenizer_type: str) -> Tuple[List[Dict], int]:
+def _generate_chunk(chunk_size: int, min_depth: int, max_depth: int, num_range: Tuple[int, int], invalid_rate: float, tokenizer_type: str) -> Tuple[List[Dict], int]:
     """Generates a chunk of evaluate expressions and returns the entries and their total token count."""
     generator = ExpressionGenerator(
+        min_depth=min_depth,
         max_depth=max_depth,
         num_range=num_range,
         invalid_rate=invalid_rate
@@ -76,6 +77,7 @@ class CorpusGenerator:
         self,
         target_tokens: int,
         num_samples: int = None, # kept for backward compatibility if needed temporarily
+        min_depth: int = 1,
         max_depth: int = 5,
         num_range: Tuple[int, int] = (1, 20),
         invalid_rate: float = 0.1,
@@ -95,6 +97,7 @@ class CorpusGenerator:
         """
         self.target_tokens = target_tokens
         self.num_samples = num_samples
+        self.min_depth = min_depth
         self.max_depth = max_depth
         self.num_range = num_range
         self.invalid_rate = invalid_rate
@@ -122,7 +125,7 @@ class CorpusGenerator:
                 # Initial fill of the worker pool
                 for _ in range(num_workers * 2):
                     active_futures.add(executor.submit(
-                        _generate_chunk, chunk_samples, self.max_depth, self.num_range, self.invalid_rate, self.tokenizer_type
+                        _generate_chunk, chunk_samples, self.min_depth, self.max_depth, self.num_range, self.invalid_rate, self.tokenizer_type
                     ))
                 
                 while active_futures:
@@ -149,7 +152,7 @@ class CorpusGenerator:
                         # If we haven't met our goal, submit another job
                         if not goal_met:
                             active_futures.add(executor.submit(
-                                _generate_chunk, chunk_samples, self.max_depth, self.num_range, self.invalid_rate, self.tokenizer_type
+                                _generate_chunk, chunk_samples, self.min_depth, self.max_depth, self.num_range, self.invalid_rate, self.tokenizer_type
                             ))
                         else:
                             # Cancel remaining futures if goal met

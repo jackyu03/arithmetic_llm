@@ -153,7 +153,6 @@ class ArithmeticEvaluator:
         node.value = (left_val + right_val) if node.op == '+' else (left_val - right_val)
         node.evaluated = True
         expr_now = self.render_expression(self.root, is_root=True)
-        self.steps.append((f"{left_val} {node.op} {right_val} = {node.value}", expr_now))
         return node.value
 
     def evaluate(self):
@@ -199,7 +198,7 @@ if __name__ == "__main__":
 
     from core.inference.generator import ExpressionGenerator
     for _ in range(5):
-        generator = ExpressionGenerator(max_depth=5, invalid_rate=0.1)
+        generator = ExpressionGenerator(min_depth=1, max_depth=5, invalid_rate=0.1)
         new_expr = generator.generate()
 
         print(f"\n\nGenerated Expression: {new_expr}\n")
@@ -319,19 +318,16 @@ class ModelEvaluator:
         
         self.model.to(device)
         self.model.eval()
-    
+
     def evaluate(
         self,
         num_samples: int = 1000,
+        min_depth: int = 1,
         max_depth: int = 5,
         num_range: Tuple[int, int] = (1, 20),
         output_dir: Optional[str] = None,
-        batch_size: int = 32,
         max_gen_length: int = 256,
-        temperature: float = 0.3,
-        top_k: int = 50,
-        top_p: float = 0.9,
-        use_constrained_decoding: bool = False,
+        log_all_questions: bool = False,
     ) -> Dict[str, float]:
         """Evaluate model on test set.
         
@@ -344,12 +340,7 @@ class ModelEvaluator:
             max_depth: Maximum depth of test expressions
             num_range: Range of numbers to use in expressions
             output_dir: Optional directory to save evaluation results
-            batch_size: Batch size for inference (default: 32)
             max_gen_length: Maximum generation length in tokens (default: 256)
-            temperature: Sampling temperature; 0 = greedy (recommended for eval)
-            top_k: Top-k sampling; 0 = disabled
-            top_p: Nucleus sampling threshold
-            use_constrained_decoding: If True, forbid newline/Step/</think> until "= number" in each step
             
         Returns:
             Dictionary with accuracy metrics:
@@ -362,6 +353,7 @@ class ModelEvaluator:
         
         # Generate test set
         generator = ExpressionGenerator(
+            min_depth=min_depth,
             max_depth=max_depth,
             num_range=num_range,
             invalid_rate=0.0  # Only valid expressions for evaluation
@@ -369,16 +361,19 @@ class ModelEvaluator:
         
         test_expressions = []
         test_answers = []
+        test_depths = []
         
         print(f"Generating {num_samples} test expressions...")
-        for _ in range(num_samples):
-            expression = generator.generate()
+        from tqdm import tqdm
+        for _ in tqdm(range(num_samples), desc="Generating expressions"):
+            expression, depth = generator.generate(return_depth=True)
             
             # Get ground truth answer
             result = eval_expression(expression)
             if result['answer'] != 'ERROR':
                 test_expressions.append(expression)
                 test_answers.append(result['answer'])
+                test_depths.append(depth)
         
         print(f"Generated {len(test_expressions)} valid test expressions")
         
@@ -389,62 +384,41 @@ class ModelEvaluator:
         total_length = 0
         sample_outputs = []
         
-        print(f"Evaluating model with batch size {batch_size}...")
+        print(f"Evaluating model...")
+
+        from tqdm import tqdm
         
-        # Process in batches
-        for batch_start in range(0, len(test_expressions), batch_size):
-            batch_end = min(batch_start + batch_size, len(test_expressions))
-            batch_expressions = test_expressions[batch_start:batch_end]
-            batch_answers = test_answers[batch_start:batch_end]
+        # Process sequentially
+        for i, (expression, ground_truth, depth) in tqdm(enumerate(zip(test_expressions, test_answers, test_depths)), total=len(test_expressions), desc="Evaluating"):
+
+            prompt = f"Evaluate: {expression}\n<think>\n"
+            generated_text = self._generate_solution(prompt, max_length=max_gen_length)
             
-           # Format prompts for batch (Must exactly match the training target strings)
-            batch_prompts = [f"Evaluate: {expr}\n<think>\n" for expr in batch_expressions]
+            total_length += len(generated_text.split())
+
+            # Extract final result
+            predicted_result = self.extract_final_result(generated_text)
             
-            # Generate solutions for batch
-            batch_generated_texts = self._generate_batch(
-                batch_prompts,
-                max_length=max_gen_length,
-                temperature=temperature,
-                top_k=top_k,
-                top_p=top_p,
-                use_constrained_decoding=use_constrained_decoding,
-            )
+            # Check if output is parseable
+            if predicted_result is not None:
+                parseable += 1
             
-            # Process batch results
-            for i, (expression, ground_truth, generated_text) in enumerate(
-                zip(batch_expressions, batch_answers, batch_generated_texts)
-            ):
-                total_length += len(generated_text.split())
-                
-                # Extract final result
-                predicted_result = self.extract_final_result(generated_text)
-                
-                # Check if output is parseable
-                if predicted_result is not None:
-                    parseable += 1
-                    
-                    # Check if result is correct
-                    if predicted_result == ground_truth:
-                        correct += 1
-                
-                # Check if each 'Expression now' line matches ground truth (no dropped subtrees)
-                if self.verify_expression_now_consistent(expression, generated_text):
-                    expr_now_consistent += 1
-                
-                # Save sample outputs (first 10)
-                global_idx = batch_start + i
-                if global_idx < 10:
-                    sample_outputs.append({
+                # Check if result is correct
+                if predicted_result == ground_truth:
+                    correct += 1
+            
+            # Save sample outputs
+            if log_all_questions or i < 10:
+                sample_outputs.append({
+                    'question_number': i + 1,
                         'expression': expression,
+                        'depth': depth,
                         'ground_truth': ground_truth,
                         'predicted': predicted_result,
                         'generated_text': generated_text,
-                        'correct': predicted_result == ground_truth if predicted_result is not None else False,
-                        'expression_now_consistent': self.verify_expression_now_consistent(expression, generated_text),
+                        'parseable': predicted_result is not None,
+                        'correct': predicted_result == ground_truth if predicted_result is not None else False
                     })
-            
-            # Progress update
-            print(f"Evaluated {batch_end}/{len(test_expressions)} samples")
         
         # Calculate metrics
         total = len(test_expressions)
@@ -461,7 +435,7 @@ class ModelEvaluator:
         
         # Save results if output directory is provided
         if output_dir:
-            self._save_results(metrics, sample_outputs, output_dir)
+            self._save_results(metrics, sample_outputs, output_dir, log_all_questions)
         
         return metrics
     
@@ -724,7 +698,8 @@ class ModelEvaluator:
         self,
         metrics: Dict[str, float],
         sample_outputs: List[Dict],
-        output_dir: str
+        output_dir: str,
+        log_all_questions: bool = False
     ) -> None:
         """Save evaluation results to disk.
         
@@ -764,13 +739,13 @@ class ModelEvaluator:
             f.write(f"Parseable Samples: {metrics['parseable_samples']}\n")
             f.write(f"Exact Match Accuracy: {metrics['exact_match_accuracy']:.2f}%\n")
             f.write(f"Parse Success Rate: {metrics['parse_success_rate']:.2f}%\n")
-            f.write(f"Expression Now Consistent: {metrics.get('expression_now_consistent_samples', 0)} / {metrics['total_samples']} ({metrics.get('expression_now_consistent_rate', 0):.2f}%)\n")
             f.write(f"Avg Generation Length: {metrics['avg_generation_length']:.2f} tokens\n\n")
             f.write("SAMPLE OUTPUTS:\n")
             f.write("-" * 60 + "\n")
             for i, sample in enumerate(sample_outputs, 1):
                 f.write(f"\nSample {i}:\n")
                 f.write(f"  Expression: {sample['expression']}\n")
+                f.write(f"Depth: {sample.get('depth', 'N/A')}\n")
                 f.write(f"  Ground Truth: {sample['ground_truth']}\n")
                 f.write(f"  Predicted: {sample['predicted']}\n")
                 f.write(f"  Correct: {sample['correct']}\n")
@@ -778,10 +753,40 @@ class ModelEvaluator:
                 f.write("  Generated Text:\n")
                 for line in sample['generated_text'].split('\n'):
                     f.write(f"    {line}\n")
-        
+        if log_all_questions:
+            # Generate detailed txt for all questions
+            detailed_txt_path = os.path.join(output_dir, f'all_questions_{timestamp}.txt')
+            with open(detailed_txt_path, 'w') as f:
+                for sample in sample_outputs:
+                    f.write(f"Question Number: {sample.get('question_number', 'N/A')}\n")
+                    f.write(f"Question: {sample['expression']}\n")
+                    f.write(f"Generated text:\n{sample['generated_text']}\n")
+                    f.write(f"Result: {sample['predicted']}\n")
+                    f.write(f"Expected result: {sample['ground_truth']}\n")
+                    f.write(f"Parsable: {sample.get('parseable', sample['predicted'] is not None)}\n")
+                    f.write("-" * 40 + "\n")
+            
+            # Generate summary csv for all questions
+            import csv
+            detailed_csv_path = os.path.join(output_dir, f'all_questions_{timestamp}.csv')
+            with open(detailed_csv_path, 'w', newline='') as f:
+                writer = csv.writer(f)
+                writer.writerow(['Question Number', 'Depth', 'Parsable', 'Correct'])
+                for sample in sample_outputs:
+                    writer.writerow([
+                        sample.get('question_number', 'N/A'),
+                        sample.get('depth', 'N/A'),
+                        sample.get('parseable', sample['predicted'] is not None),
+                        sample['correct']
+                    ])
+
         print(f"\nEvaluation results saved to {output_dir}")
         print(f"  - Metrics: {metrics_path}")
         print(f"  - Samples: {samples_path}")
         print(f"  - Summary: {summary_path}")
+
+        if log_all_questions:
+            print(f"  - Detailed Txt: {detailed_txt_path}")
+            print(f"  - Detailed CSV: {detailed_csv_path}")
 
 

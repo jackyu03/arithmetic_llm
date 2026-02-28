@@ -2,34 +2,65 @@ import random
 
 
 class ExpressionGenerator:
-    def __init__(self, max_depth=2, num_range=(1, 20), invalid_rate=0.1):
+    def __init__(self, min_depth=1, max_depth=2, num_range=(1, 20), invalid_rate=0.1):
+        self.min_depth = min_depth
         self.max_depth = max_depth
         self.num_range = num_range
         self.invalid_rate = invalid_rate
 
     
 
-    def generate(self, current_depth=0):
-        # At max_depth, we MUST generate a number (leaf)
-        if current_depth >= self.max_depth:
-            return str(random.randint(self.num_range[0], self.num_range[1]))
+    def generate(self, current_depth=0, return_depth=False, target_depth=None):
+        # Choose target depth for the entire expression at the root
+        if current_depth == 0 and target_depth is None:
+            target_depth = random.randint(self.min_depth, self.max_depth)
             
-        # At depth 0 (root), we MUST NOT generate a simple number.
-        # This prevents "Evaluate: 14" echoing which wastes compute and
-        # creates a lazy local minima.
-        if current_depth == 0:
-            is_leaf = False
-        else:
-            # 30% chance to be a leaf node early (unless we're at the root)
-            is_leaf = random.random() < 0.3
+        # Fallback if somehow not set
+        if target_depth is None:
+            target_depth = self.max_depth
+
+        # At target_depth, we MUST generate a number (leaf)
+        if current_depth >= target_depth:
+            res = str(random.randint(self.num_range[0], self.num_range[1]))
+            return (res, 0) if return_depth else res
             
-        if is_leaf:
-            return str(random.randint(self.num_range[0], self.num_range[1]))
-        
-        # Otherwise, expand into an operation
+        # Below target_depth, we must expand at least one path to reach target_depth.
+        # But we don't want every branch to be a straight line to target_depth.
+        # 30% chance to be a leaf node early, EXCEPT if doing so makes it impossible 
+        # for ANY branch to reach target_depth.
+        # Since we are expanding an operation here, one of the two branches MUST 
+        # be allowed to reach the target depth.
         op = random.choice(['+', '-'])
-        left = self.generate(current_depth + 1)
-        right = self.generate(current_depth + 1)
+        # Decide which branch is the 'deep' branch that will definitely reach target_depth
+        deep_branch_is_left = random.choice([True, False])
+        
+        # Generate Left Branch
+        if current_depth < target_depth - 1 and not deep_branch_is_left and random.random() < 0.3:
+            # We can safely terminate early because the right branch will go deep
+            left_res = str(random.randint(self.num_range[0], self.num_range[1]))
+            left_d = 0
+            left = left_res
+        else:
+            if return_depth:
+                left, left_d = self.generate(current_depth + 1, return_depth=True, target_depth=target_depth)
+            else:
+                left = self.generate(current_depth + 1, target_depth=target_depth)
+                left_d = 0 # Dummy value
+
+        # Generate Right Branch
+        if current_depth < target_depth - 1 and deep_branch_is_left and random.random() < 0.3:
+            # We can safely terminate early because the left branch already went deep
+            right_res = str(random.randint(self.num_range[0], self.num_range[1]))
+            right_d = 0
+            right = right_res
+        else:
+            if return_depth:
+                right, right_d = self.generate(current_depth + 1, return_depth=True, target_depth=target_depth)
+            else:
+                right = self.generate(current_depth + 1, target_depth=target_depth)
+                right_d = 0 # Dummy value
+
+        max_d = max(left_d, right_d) + 1
 
         if random.random() < self.invalid_rate:    
             error_type = random.choice(['missing_operand_right', 
@@ -41,24 +72,27 @@ class ExpressionGenerator:
                                         'arbitrary'
                                         ])
             if error_type == 'missing_operand_right':
-                return f"{left} +"
+                res = f"{left} +"
             elif error_type == 'missing_operand_left':
-                return f"+ {right}"
+                res = f"+ {right}"
             elif error_type == 'extra_operator++':
-                return f"{left} ++ {right}"
+                res = f"{left} ++ {right}"
             elif error_type == 'extra_operator--':
-                return f"{left} -- {right}"
+                res = f"{left} -- {right}"
             elif error_type == 'unbalanced_paren_right':
-                return f"({left} {op} {right}"
+                res = f"({left} {op} {right}"
             elif error_type == 'unbalanced_paren_left':
-                return f"{left} {op} {right})"
+                res = f"{left} {op} {right})"
             else:  # arbitrary error
-                return self._generate_invalid()
+                res = self._generate_invalid()
+            return (res, max_d) if return_depth else res
         else:
             # Randomly decide to wrap in parentheses for visual structure
             if current_depth > 0:
-                return f"({left} {op} {right})"
-            return f"{left} {op} {right}"
+                res = f"({left} {op} {right})"
+            else:
+                res = f"{left} {op} {right}"
+            return (res, max_d) if return_depth else res
     
     def _generate_invalid(self):
         # Keep numeric tokens within num_range, even for invalid expressions.
@@ -85,13 +119,13 @@ class ExpressionGenerator:
 if __name__ == "__main__":
     # Usage
     for _ in range(5):
-        generator = ExpressionGenerator(max_depth=5, invalid_rate=0.1)
+        generator = ExpressionGenerator(min_depth=1, max_depth=5, invalid_rate=0.1)
         new_expr = generator.generate()
 
         print(f"Generated Expression: {new_expr}")
 
     for _ in range(5):
-        generator = ExpressionGenerator(max_depth=5, invalid_rate=-1.0)
+        generator = ExpressionGenerator(min_depth=1, max_depth=5, invalid_rate=-1.0)
         new_expr = generator.generate()
 
         print(f"Generated Expression: {new_expr}")

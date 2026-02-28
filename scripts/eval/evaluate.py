@@ -3,6 +3,7 @@
 
 import random
 import argparse
+from datetime import datetime
 from core.eval.evaluator import ModelEvaluator
 
 
@@ -48,6 +49,13 @@ def main():
         default=1000,
         help="Number of test expressions to generate (default: 1000)"
     )
+
+    parser.add_argument(
+        "--min-depth",
+        type=int,
+        default=1,
+        help="Minimum depth of test expressions (default: 1)"
+    )
     
     parser.add_argument(
         "--max-depth",
@@ -69,7 +77,13 @@ def main():
         "--output-dir",
         type=str,
         default="evaluation_results",
-        help="Directory to save evaluation results (default: homeowrk/core/evaluation_results)"
+        help="Directory to save evaluation results (default: evaluation_results)"
+    )
+    
+    parser.add_argument(
+        "--log-all-questions",
+        action="store_true",
+        help="Log detailed results for all questions"
     )
     
     parser.add_argument(
@@ -77,13 +91,6 @@ def main():
         type=str,
         default="auto",
         help="Device for inference: 'cuda', 'mps', 'cpu', or 'auto' (default: auto)"
-    )
-    
-    parser.add_argument(
-        "--batch-size",
-        type=int,
-        default=1,
-        help="Batch size for inference (default: 1)"
     )
     
     parser.add_argument(
@@ -156,14 +163,15 @@ def main():
     print(f"Device: {device}")
     print("\nEvaluation Configuration:")
     print(f"  Test samples: {args.num_samples}")
+    print(f"  Min depth: {args.min_depth}")
     print(f"  Max depth: {args.max_depth}")
     print(f"  Number range: {args.num_range[0]} to {args.num_range[1]}")
-    print(f"  Batch size: {args.batch_size}")
     print(f"  Max generation length: {args.max_gen_length}")
     print(f"  Temperature: {args.temperature} (0 = greedy)")
     print(f"  Top-k: {args.top_k}, Top-p: {args.top_p}")
     print(f"  Constrain decoding: {args.constrain_decoding}")
     print(f"  Output directory: {args.output_dir}")
+    print(f"  Log all questions: {args.log_all_questions}")
     print("=" * 60 + "\n")
     
     # Create evaluator
@@ -180,13 +188,26 @@ def main():
         
         # Run evaluation
         print("Starting evaluation...")
+        import os
+        os.makedirs(args.output_dir, exist_ok=True)
+
+        # Save evaluation arguments
+        import json
+        
+        args_dict = vars(args)
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        args_path = os.path.join(args.output_dir, f'evaluation_args_{timestamp}.json')
+        with open(args_path, 'w') as f:
+            json.dump(args_dict, f, indent=2)
+
         metrics = evaluator.evaluate(
             num_samples=args.num_samples,
             max_depth=args.max_depth,
+            min_depth=args.min_depth,
             num_range=tuple(args.num_range),
             output_dir=args.output_dir,
-            batch_size=args.batch_size,
             max_gen_length=args.max_gen_length,
+            log_all_questions=args.log_all_questions,
             temperature=args.temperature,
             top_k=args.top_k,
             top_p=args.top_p,
