@@ -406,6 +406,11 @@ class ModelEvaluator:
                 # Check if result is correct
                 if predicted_result == ground_truth:
                     correct += 1
+
+            # Check if reasoning steps (Expression now lines) match ground truth
+            expr_now_ok = self.verify_expression_now_consistent(expression, generated_text)
+            if expr_now_ok:
+                expr_now_consistent += 1
             
             # Save sample outputs
             if log_all_questions or i < 10:
@@ -417,7 +422,8 @@ class ModelEvaluator:
                         'predicted': predicted_result,
                         'generated_text': generated_text,
                         'parseable': predicted_result is not None,
-                        'correct': predicted_result == ground_truth if predicted_result is not None else False
+                        'correct': predicted_result == ground_truth if predicted_result is not None else False,
+                        'expression_now_consistent': expr_now_ok,
                     })
         
         # Calculate metrics

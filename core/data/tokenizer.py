@@ -33,7 +33,7 @@ class ArithmeticDigitTokenizer:
         # Define atomic symbols that should never be merged
         self.atomic_symbols = ['+', '-', '(', ')', ':', '=', '*']
         
-    def train(self, corpus_path: str) -> None:
+    def train(self) -> None:
         """
         Build tokenizer vocabulary. No BPE merges are performed; we just collect
         all unique characters (digits and basic math symbols).

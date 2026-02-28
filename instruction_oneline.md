@@ -4,7 +4,7 @@
 
 # Generate foundational training corpus with 100K samples (plain text)
 # This large corpus provides the base model with extensive arithmetic patterns
-python scripts/data/generate_foundational_plaintext.py --num-samples 100000 --max-depth 4 --num-range 1 20 --invalid-rate 0.05 --output-txt data/foundational_corpus.txt
+python scripts/data/generate_foundational_plaintext.py --target-tokens 100000000 --output-txt data/foundational_corpus.txt
 
 # Generate mixed instruction corpus (valid + invalid)
 # This creates a balanced dataset without writing intermediate files
@@ -27,7 +27,7 @@ python scripts/utils/print_token_table.py --tokenizer_path data/tokenizer/tokeni
 python scripts/utils/check_sequence_lengths.py --corpus-path data/instruction_corpus.txt --tokenizer-path data/tokenizer
 
 # 3. Train foundational model
-python scripts/train/foundational.py --corpus-path data/foundational_corpus.txt --output-dir models/ --tokenizer-path data/tokenizer --num-epochs 10 --max-seq-length 512 --batch-size 16
+python scripts/train/foundational.py --corpus-path data/foundational_corpus.txt --output-dir models/foundational --tokenizer-path data/tokenizer
 
 # 3.1 Evaluate the foundational model, performance would be bad
 python scripts/eval/evaluate.py --model-path models/foundational_20260220_103758_473709/best_model.pt --tokenizer-path data/tokenizer --max-gen-length 512 --num-samples 100 --batch-size 1

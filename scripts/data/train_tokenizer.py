@@ -3,7 +3,7 @@
 
 import argparse
 import os
-from core.data.tokenizer import ArithmeticBPETokenizer
+from core.data.tokenizer import ArithmeticBPETokenizer, ArithmeticDigitTokenizer
 
 
 def main():
@@ -24,6 +24,14 @@ def main():
         type=int,
         default=1000,
         help="Target vocabulary size (default: 1000)"
+    )
+
+    parser.add_argument(
+        "--tokenizer-type",
+        type=str,
+        default="digit",
+        choices=["digit", "bpe"],
+        help="Tokenizer type to train: 'digit' or 'bpe' (default: digit)"
     )
     
     parser.add_argument(
@@ -46,20 +54,22 @@ def main():
     os.makedirs(args.output_dir, exist_ok=True)
     
     # Train tokenizer
-    print(f"Training BPE tokenizer with vocabulary size {args.vocab_size}...")
-    print(f"Corpus: {args.corpus_path}")
+    if args.tokenizer_type == "bpe":
+        print(f"Training BPE tokenizer with vocabulary size {args.vocab_size}...")
+        print(f"Corpus: {args.corpus_path}")
+        tokenizer = ArithmeticBPETokenizer(vocab_size=args.vocab_size)
+        tokenizer.train(args.corpus_path)
+    elif args.tokenizer_type == "digit":
+        print(f"Training digit tokenizer")
+        tokenizer = ArithmeticDigitTokenizer()
+        tokenizer.train()
+    else:
+        parser.error(f"Invalid tokenizer type: {args.tokenizer_type}")
     
-    tokenizer = ArithmeticBPETokenizer(vocab_size=args.vocab_size)
-    tokenizer.train(args.corpus_path)
     
     print(f"Saving tokenizer to: {args.output_dir}")
     tokenizer.save(args.output_dir)
     
-    # Display tokenizer statistics
-    print("\nTokenizer Statistics:")
-    print(f"  Vocabulary size: {len(tokenizer.token2id)}")
-    print(f"  BPE merge operations: {len(tokenizer.bpe_codes)}")
-    print(f"  Special tokens: {', '.join(tokenizer.special_tokens)}")
     
     # Test tokenizer with a sample expression
     for test_expr in ["5 + 10 - 3", "12 - (4 + 2)", "((7+3)-(3+5))"]:
