@@ -140,7 +140,6 @@ def main():
     print(f"  Max depth: {args.max_depth}")
     print(f"  Number range: {args.num_range[0]} to {args.num_range[1]}")
     print(f"  Max generation length: {args.max_gen_length}")
-    print(f"  Constrain decoding: {args.constrain_decoding}")
     print(f"  Output directory: {args.output_dir}")
     print(f"  Log all questions: {args.log_all_questions}")
     print("=" * 60 + "\n")
