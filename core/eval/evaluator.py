@@ -153,6 +153,8 @@ class ArithmeticEvaluator:
         node.value = (left_val + right_val) if node.op == '+' else (left_val - right_val)
         node.evaluated = True
         expr_now = self.render_expression(self.root, is_root=True)
+        step_str = f"{left_val} {node.op} {right_val} = {node.value}"
+        self.steps.append((step_str, expr_now))
         return node.value
 
     def evaluate(self):
