@@ -107,13 +107,6 @@ def main():
         help="Random seed for deterministic evaluation generation"
     )
     
-    
-    parser.add_argument(
-        "--constrain-decoding",
-        action="store_true",
-        help="Forbid newline/Step/</think> until '= number' in each step (reduces dropped steps)"
-    )
-    
     args = parser.parse_args()
     
     # Determine device
@@ -185,8 +178,7 @@ def main():
             num_range=tuple(args.num_range),
             output_dir=args.output_dir,
             max_gen_length=args.max_gen_length,
-            log_all_questions=args.log_all_questions,
-            use_constrained_decoding=args.constrain_decoding,
+            log_all_questions=args.log_all_questions
         )
         
         # Display results
