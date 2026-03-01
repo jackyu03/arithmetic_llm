@@ -78,7 +78,7 @@ class ArithmeticDigitTokenizer:
         import os
         filepath = os.path.join(save_dir, 'tokenizer_digit.pkl')
         if not os.path.exists(filepath):
-            self.train("dummy_path")
+            self.train()
             self.save(save_dir)
             return
             

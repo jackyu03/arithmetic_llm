@@ -208,6 +208,9 @@ def main() -> None:
         save_every=1000,
         device=device,
         use_wandb=False,
+        use_contrastive=False,
+        contrastive_weight=0.0,
+        contrastive_temperature=0.0,
         use_curriculum=False,
         num_workers=0,  # avoid multiprocessing issues in sweep
     )

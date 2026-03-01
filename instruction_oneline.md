@@ -52,4 +52,17 @@ python scripts/train/grpo.py --tokenizer data/tokenizer --sft-checkpoint models/
 # 6.1 eval GRPO model
 python scripts/eval/evaluate.py   --model-path models/grpo/grpo_20260223_034718_367216/final_model.pt    --tokenizer-path data/tokenizer   --max-gen-length 512   --batch-size 1   --num-samples 1000
 
+
+
+# LoRA sweep only (ranks 2, 4, 8, 16), 500 eval samples, 3 epochs:
+python scripts/train/lora_sweep.py --instruction-corpus-path data/instruction_corpus.txt --tokenizer-path data/tokenizer_digit --foundational-checkpoint models/foundational/best_model.pt --output-dir lora_sweep_results --lora-ranks 2 4 8 16 --num-epochs 3 --num-eval-samples 500
+
+
+# Include full instruction baseline (train + evaluate):
+python scripts/train/lora_sweep.py --instruction-corpus-path data/instruction_corpus.txt --tokenizer-path data/tokenizer_digit --foundational-checkpoint models/foundational/best_model.pt --output-dir lora_sweep_results --run-full-instruction --lora-ranks 2 4 8 16 32 --num-epochs 3 --num-eval-samples 500
+
+# Use an existing full-instruction checkpoint as baseline (no extra training):
+python scripts/train/lora_sweep.py --instruction-corpus-path data/instruction_corpus.txt --tokenizer-path data/tokenizer_digit --foundational-checkpoint models/foundational/best_model.pt --instruction-model-path models/instruction/best_model.pt --output-dir lora_sweep_results --lora-ranks 2 4 8 16 32 --num-eval-samples 500
 ```
+
+
