@@ -389,12 +389,16 @@ class ModelEvaluator:
         from tqdm import tqdm
         
         # Process sequentially
+        total_generated_tokens = 0
         for i, (expression, ground_truth, depth) in tqdm(enumerate(zip(test_expressions, test_answers, test_depths)), total=len(test_expressions), desc="Evaluating"):
 
             prompt = f"Evaluate: {expression}\n<think>\n"
             generated_text = self._generate_solution(prompt, max_length=max_gen_length)
             
             total_length += len(generated_text.split())
+            # Count tokens for efficiency metrics (exclude prompt)
+            gen_tokens = self.tokenizer.encode(generated_text, add_special_tokens=False)
+            total_generated_tokens += len(gen_tokens)
 
             # Extract final result
             predicted_result = self.extract_final_result(generated_text)
@@ -437,6 +441,7 @@ class ModelEvaluator:
             'correct_samples': correct,
             'parseable_samples': parseable,
             'expression_now_consistent_samples': expr_now_consistent,
+            'total_generated_tokens': total_generated_tokens,
         }
         
         # Save results if output directory is provided
