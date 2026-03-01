@@ -454,8 +454,6 @@ class ModelEvaluator:
         self,
         prompt: str,
         max_length: int = 256,
-        temperature: float = 0.3,
-        top_k: int = 50,
         top_p: float = 0.9,
         use_constrained_decoding: bool = False,
     ) -> str:
@@ -508,8 +506,6 @@ class ModelEvaluator:
         self,
         prompts: List[str],
         max_length: int = 256,
-        temperature: float = 0.3,
-        top_k: int = 50,
         top_p: float = 0.9,
         use_constrained_decoding: bool = False,
     ) -> List[str]:

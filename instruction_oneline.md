@@ -30,7 +30,7 @@ python scripts/utils/check_sequence_lengths.py --corpus-path data/instruction_co
 python scripts/train/foundational.py --corpus-path data/foundational_corpus.txt --output-dir models/foundational --tokenizer-path data/tokenizer --wandb
 
 # 3.1 Evaluate the foundational model, performance would be bad
-python scripts/eval/evaluate.py --model-path models/foundational_20260220_103758_473709/best_model.pt --tokenizer-path data/tokenizer --max-gen-length 512 --num-samples 100 --batch-size 1
+python scripts/eval/evaluate.py --model-path models/foundational/best_model.pt --tokenizer-path data/tokenizer --tokenizer-type digit --num-samples 1000
 
 
 # 4. Fine-tune instruction model

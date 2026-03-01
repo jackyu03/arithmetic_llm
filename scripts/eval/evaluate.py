@@ -107,26 +107,6 @@ def main():
         help="Random seed for deterministic evaluation generation"
     )
     
-    parser.add_argument(
-        "--temperature",
-        type=float,
-        default=0.0,
-        help="Sampling temperature; 0 = greedy (recommended to reduce dropped digits, default: 0)"
-    )
-    
-    parser.add_argument(
-        "--top-k",
-        type=int,
-        default=0,
-        help="Top-k sampling; 0 = disabled (default: 0 with greedy)"
-    )
-    
-    parser.add_argument(
-        "--top-p",
-        type=float,
-        default=1.0,
-        help="Nucleus sampling threshold; 1.0 = disabled (default: 1.0)"
-    )
     
     parser.add_argument(
         "--constrain-decoding",
@@ -167,8 +147,6 @@ def main():
     print(f"  Max depth: {args.max_depth}")
     print(f"  Number range: {args.num_range[0]} to {args.num_range[1]}")
     print(f"  Max generation length: {args.max_gen_length}")
-    print(f"  Temperature: {args.temperature} (0 = greedy)")
-    print(f"  Top-k: {args.top_k}, Top-p: {args.top_p}")
     print(f"  Constrain decoding: {args.constrain_decoding}")
     print(f"  Output directory: {args.output_dir}")
     print(f"  Log all questions: {args.log_all_questions}")
@@ -208,9 +186,6 @@ def main():
             output_dir=args.output_dir,
             max_gen_length=args.max_gen_length,
             log_all_questions=args.log_all_questions,
-            temperature=args.temperature,
-            top_k=args.top_k,
-            top_p=args.top_p,
             use_constrained_decoding=args.constrain_decoding,
         )
         
