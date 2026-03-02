@@ -10,6 +10,10 @@ import time
 
 import torch
 import torch.nn.functional as F
+try:
+    from tqdm import tqdm
+except ImportError:
+    tqdm = lambda x, **kwargs: x
 
 from core.data.tokenizer import ArithmeticBPETokenizer
 from core.eval.verifier import ArithmeticVerifier
@@ -800,7 +804,11 @@ class GRPOTrainer:
 
         self.policy_model.eval()
         with torch.no_grad():
-            while input_ids.shape[1] < max_gen_length:
+            initial_len = input_ids.shape[1]
+            for _ in tqdm(range(max_gen_length - initial_len), desc="Generating Rollouts", leave=False):
+                if finished.all():
+                    break
+                    
                 device_type = "cuda" if self.config.device == "cuda" else "cpu"
                 with torch.amp.autocast(
                     device_type=device_type,
