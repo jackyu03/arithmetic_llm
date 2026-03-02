@@ -60,7 +60,7 @@ def main():
     parser.add_argument(
         "--batch-size",
         type=int,
-        default=32,
+        default=4,
         help="Batch size (default: 32)"
     )
     
@@ -115,7 +115,7 @@ def main():
     parser.add_argument(
         "--num-workers",
         type=int,
-        default=4,
+        default=8,
         help="Number of dataloader worker threads (default: 4)"
     )
     # Model configuration
@@ -163,7 +163,7 @@ def main():
     parser.add_argument(
         "--max-seq-length",
         type=int,
-        default=512,
+        default=2048,
         help="Maximum sequence length (default: 512)"
     )
     

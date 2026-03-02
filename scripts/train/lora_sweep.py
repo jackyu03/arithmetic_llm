@@ -33,6 +33,23 @@ def _get_device(device_str: str) -> str:
     )
 
 
+def _reset_cuda_peak_memory() -> None:
+    """Reset CUDA peak memory stats so next _get_cuda_peak_memory_mb() is per-run."""
+    if torch.cuda.is_available():
+        torch.cuda.synchronize()
+        torch.cuda.reset_peak_memory_stats()
+
+
+def _get_cuda_peak_memory_mb() -> Tuple[Optional[float], Optional[float]]:
+    """Return (peak_allocated_mb, peak_reserved_mb) since last reset. (None, None) if not CUDA."""
+    if not torch.cuda.is_available():
+        return None, None
+    torch.cuda.synchronize()
+    alloc = torch.cuda.max_memory_allocated() / (1024 ** 2)
+    reserved = torch.cuda.max_memory_reserved() / (1024 ** 2)
+    return round(alloc, 2), round(reserved, 2)
+
+
 def count_trainable_params_lora(model_config: Dict[str, Any], rank: int) -> int:
     """Approximate LoRA trainable parameters (attention only: Q,K,V,O per layer)."""
     d_model = model_config.get("d_model", 256)
@@ -64,9 +81,10 @@ def run_lora_training(
     lora_config: LoRAConfig,
     training_config: TrainingConfig,
     model_config: Optional[Dict[str, Any]] = None,
-) -> Tuple[str, float]:
-    """Train instruction LoRA and return (adapter_path, training_time_sec)."""
+) -> Tuple[str, float, Optional[float], Optional[float]]:
+    """Train instruction LoRA. Return (adapter_path, training_time_sec, vram_alloc_mb, vram_reserved_mb)."""
     os.makedirs(output_dir, exist_ok=True)
+    _reset_cuda_peak_memory()
     t0 = time.perf_counter()
     path = train_instruction_model_lora(
         instruction_corpus_path=instruction_corpus_path,
@@ -80,7 +98,8 @@ def run_lora_training(
         save_merged_model=False,
     )
     elapsed = time.perf_counter() - t0
-    return path, elapsed
+    vram_alloc, vram_reserved = _get_cuda_peak_memory_mb()
+    return path, elapsed, vram_alloc, vram_reserved
 
 
 def run_full_instruction_training(
@@ -91,9 +110,10 @@ def run_full_instruction_training(
     output_dir: str,
     training_config: TrainingConfig,
     model_config: Optional[Dict[str, Any]] = None,
-) -> Tuple[str, float]:
-    """Train full instruction model (no LoRA) and return (checkpoint_path, training_time_sec)."""
+) -> Tuple[str, float, Optional[float], Optional[float]]:
+    """Train full instruction model. Return (checkpoint_path, training_time_sec, vram_alloc_mb, vram_reserved_mb)."""
     os.makedirs(output_dir, exist_ok=True)
+    _reset_cuda_peak_memory()
     t0 = time.perf_counter()
     path = train_instruction_model(
         instruction_corpus_path=instruction_corpus_path,
@@ -105,7 +125,8 @@ def run_full_instruction_training(
         tokenizer_type=tokenizer_type,
     )
     elapsed = time.perf_counter() - t0
-    return path, elapsed
+    vram_alloc, vram_reserved = _get_cuda_peak_memory_mb()
+    return path, elapsed, vram_alloc, vram_reserved
 
 
 def evaluate_model(
@@ -120,8 +141,8 @@ def evaluate_model(
     num_range: tuple = (1, 20),
     max_gen_length: int = 512,
     seed: int = 42,
-) -> Tuple[Dict[str, Any], float]:
-    """Evaluate a model (full or LoRA adapter). Returns (metrics, eval_wall_sec)."""
+) -> Tuple[Dict[str, Any], float, Optional[float], Optional[float]]:
+    """Evaluate a model. Returns (metrics, eval_wall_sec, vram_alloc_mb, vram_reserved_mb)."""
     random.seed(seed)
     torch.manual_seed(seed)
     if torch.cuda.is_available():
@@ -134,6 +155,7 @@ def evaluate_model(
         base_checkpoint_path=base_checkpoint_path,
         device=device,
     )
+    _reset_cuda_peak_memory()
     t0 = time.perf_counter()
     metrics = evaluator.evaluate(
         num_samples=num_samples,
@@ -145,7 +167,8 @@ def evaluate_model(
         log_all_questions=False,
     )
     eval_sec = time.perf_counter() - t0
-    return metrics, eval_sec
+    vram_alloc, vram_reserved = _get_cuda_peak_memory_mb()
+    return metrics, eval_sec, vram_alloc, vram_reserved
 
 
 def main() -> None:
@@ -237,7 +260,7 @@ def main() -> None:
         print("=" * 60)
         full_dir = os.path.join(base_dir, "full_instruction")
         try:
-            full_checkpoint, train_sec = run_full_instruction_training(
+            full_checkpoint, train_sec, vram_train_alloc, vram_train_reserved = run_full_instruction_training(
                 instruction_corpus_path=args.instruction_corpus_path,
                 tokenizer_path=args.tokenizer_path,
                 tokenizer_type=args.tokenizer_type,
@@ -250,7 +273,7 @@ def main() -> None:
             full_model_path = os.path.join(full_dir, "best_model.pt")
             if not os.path.exists(full_model_path):
                 full_model_path = full_checkpoint
-            metrics, eval_sec = evaluate_model(
+            metrics, eval_sec, vram_eval_alloc, vram_eval_reserved = evaluate_model(
                 model_path=full_model_path,
                 tokenizer_path=args.tokenizer_path,
                 tokenizer_type=args.tokenizer_type,
@@ -277,9 +300,14 @@ def main() -> None:
                     "trainable_params": trainable_params,
                     "samples_per_sec": metrics["total_samples"] / eval_sec if eval_sec > 0 else 0,
                     "tokens_per_sec": total_tokens / eval_sec if eval_sec > 0 else 0,
+                    "vram_train_allocated_mb": vram_train_alloc,
+                    "vram_train_reserved_mb": vram_train_reserved,
+                    "vram_eval_allocated_mb": vram_eval_alloc,
+                    "vram_eval_reserved_mb": vram_eval_reserved,
                 },
             })
-            print(f"  Full instruction accuracy: {metrics['exact_match_accuracy']:.2f}%  train: {train_sec:.0f}s  eval: {eval_sec:.1f}s")
+            vram_str = f"  train VRAM: {vram_train_alloc}/{vram_train_reserved} MB  eval VRAM: {vram_eval_alloc}/{vram_eval_reserved} MB" if vram_train_alloc is not None else ""
+            print(f"  Full instruction accuracy: {metrics['exact_match_accuracy']:.2f}%  train: {train_sec:.0f}s  eval: {eval_sec:.1f}s{vram_str}")
         except Exception as e:
             print(f"  Full instruction failed: {e}")
             results.append({
@@ -293,7 +321,7 @@ def main() -> None:
         print("Evaluating existing FULL INSTRUCTION model (baseline)")
         print("=" * 60)
         try:
-            metrics, eval_sec = evaluate_model(
+            metrics, eval_sec, vram_eval_alloc, vram_eval_reserved = evaluate_model(
                 model_path=args.instruction_model_path,
                 tokenizer_path=args.tokenizer_path,
                 tokenizer_type=args.tokenizer_type,
@@ -320,9 +348,14 @@ def main() -> None:
                     "trainable_params": trainable_params,
                     "samples_per_sec": metrics["total_samples"] / eval_sec if eval_sec > 0 else 0,
                     "tokens_per_sec": total_tokens / eval_sec if eval_sec > 0 else 0,
+                    "vram_train_allocated_mb": None,
+                    "vram_train_reserved_mb": None,
+                    "vram_eval_allocated_mb": vram_eval_alloc,
+                    "vram_eval_reserved_mb": vram_eval_reserved,
                 },
             })
-            print(f"  Full instruction accuracy: {metrics['exact_match_accuracy']:.2f}%  eval: {eval_sec:.1f}s")
+            vram_str = f"  eval VRAM: {vram_eval_alloc} / {vram_eval_reserved} MB" if vram_eval_alloc is not None else ""
+            print(f"  Full instruction accuracy: {metrics['exact_match_accuracy']:.2f}%  eval: {eval_sec:.1f}s{vram_str}")
         except Exception as e:
             print(f"  Evaluation failed: {e}")
             results.append({
@@ -348,7 +381,7 @@ def main() -> None:
         print(f"Training LoRA rank={r} alpha={alpha}")
         print("=" * 60)
         try:
-            adapter_path, train_sec = run_lora_training(
+            adapter_path, train_sec, vram_train_alloc, vram_train_reserved = run_lora_training(
                 instruction_corpus_path=args.instruction_corpus_path,
                 tokenizer_path=args.tokenizer_path,
                 tokenizer_type=args.tokenizer_type,
@@ -358,7 +391,7 @@ def main() -> None:
                 training_config=training_config,
                 model_config=model_config,
             )
-            metrics, eval_sec = evaluate_model(
+            metrics, eval_sec, vram_eval_alloc, vram_eval_reserved = evaluate_model(
                 model_path=adapter_path,
                 tokenizer_path=args.tokenizer_path,
                 tokenizer_type=args.tokenizer_type,
@@ -385,9 +418,14 @@ def main() -> None:
                     "trainable_params": trainable_params,
                     "samples_per_sec": metrics["total_samples"] / eval_sec if eval_sec > 0 else 0,
                     "tokens_per_sec": total_tokens / eval_sec if eval_sec > 0 else 0,
+                    "vram_train_allocated_mb": vram_train_alloc,
+                    "vram_train_reserved_mb": vram_train_reserved,
+                    "vram_eval_allocated_mb": vram_eval_alloc,
+                    "vram_eval_reserved_mb": vram_eval_reserved,
                 },
             })
-            print(f"  LoRA r={r} accuracy: {metrics['exact_match_accuracy']:.2f}%  train: {train_sec:.0f}s  eval: {eval_sec:.1f}s  params: {trainable_params:,}")
+            vram_str = f"  train VRAM: {vram_train_alloc}/{vram_train_reserved} MB" if vram_train_alloc is not None else ""
+            print(f"  LoRA r={r} accuracy: {metrics['exact_match_accuracy']:.2f}%  train: {train_sec:.0f}s  eval: {eval_sec:.1f}s  params: {trainable_params:,}{vram_str}")
         except Exception as e:
             print(f"  LoRA r={r} failed: {e}")
             results.append({
@@ -427,25 +465,34 @@ def main() -> None:
     print("\n" + "=" * 60)
     print("COMPARISON: Efficiency")
     print("=" * 60)
-    eff_headers = ["Config", "Train(s)", "Eval(s)", "Trainable", "Samp/s", "Tok/s"]
-    print(f"\n{eff_headers[0]:<26} {eff_headers[1]:>8} {eff_headers[2]:>8} {eff_headers[3]:>12} {eff_headers[4]:>8} {eff_headers[5]:>10}")
-    print("-" * row_len)
+    eff_headers = ["Config", "Train(s)", "Eval(s)", "Trainable", "Samp/s", "Tok/s", "TrAlloc", "TrRes", "EvAlloc", "EvRes"]
+    print(f"\n{eff_headers[0]:<26} {eff_headers[1]:>8} {eff_headers[2]:>8} {eff_headers[3]:>12} {eff_headers[4]:>8} {eff_headers[5]:>10} {eff_headers[6]:>8} {eff_headers[7]:>8} {eff_headers[8]:>8} {eff_headers[9]:>8}")
+    print("-" * 100)
 
     for rec in results:
         name = rec["name"]
         eff = rec.get("efficiency")
         if eff is None:
-            print(f"{name:<26} {'—':>8} {'—':>8} {'—':>12} {'—':>8} {'—':>10}")
+            print(f"{name:<26} {'—':>8} {'—':>8} {'—':>12} {'—':>8} {'—':>10} {'—':>8} {'—':>8} {'—':>8} {'—':>8}")
             continue
         train_s = eff.get("training_time_sec")
         eval_s = eff.get("eval_time_sec") or 0
         params = eff.get("trainable_params") or 0
         samp_s = eff.get("samples_per_sec") or 0
         tok_s = eff.get("tokens_per_sec") or 0
+        tr_alloc = eff.get("vram_train_allocated_mb")
+        tr_res = eff.get("vram_train_reserved_mb")
+        ev_alloc = eff.get("vram_eval_allocated_mb")
+        ev_res = eff.get("vram_eval_reserved_mb")
         train_str = f"{train_s:.0f}" if train_s is not None else "—"
-        print(f"{name:<26} {train_str:>8} {eval_s:>8.1f} {params:>12,} {samp_s:>8.2f} {tok_s:>10.1f}")
+        tr_alloc_s = f"{tr_alloc:.0f}" if tr_alloc is not None else "—"
+        tr_res_s = f"{tr_res:.0f}" if tr_res is not None else "—"
+        ev_alloc_s = f"{ev_alloc:.0f}" if ev_alloc is not None else "—"
+        ev_res_s = f"{ev_res:.0f}" if ev_res is not None else "—"
+        print(f"{name:<26} {train_str:>8} {eval_s:>8.1f} {params:>12,} {samp_s:>8.2f} {tok_s:>10.1f} {tr_alloc_s:>8} {tr_res_s:>8} {ev_alloc_s:>8} {ev_res_s:>8}")
 
-    print("-" * row_len)
+    print("-" * 100)
+    print("  (VRAM columns in MB: TrAlloc/TrRes = peak allocated/reserved during training; EvAlloc/EvRes = during evaluation; — = N/A e.g. CPU)")
 
     # Save JSON (include efficiency in each result)
     summary = {
