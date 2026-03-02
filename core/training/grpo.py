@@ -6,7 +6,7 @@ import os
 import math
 from datetime import datetime
 
-from core.data.tokenizer import ArithmeticBPETokenizer, ArithmeticTokenizer
+from core.data.tokenizer import ArithmeticBPETokenizer, ArithmeticDigitTokenizer
 from core.data.loader import ArithmeticDataset
 from core.eval.evaluator import eval_expression
 from core.inference.generator import ExpressionGenerator
@@ -24,7 +24,7 @@ def _batch_iter(items: List[dict], batch_size: int) -> Iterator[Tuple[List[str],
 
 def _load_instruction_pairs(
     instruction_corpus_path: str,
-    tokenizer: ArithmeticTokenizer,
+    tokenizer: Any,
     validate_expressions: bool
 ) -> List[dict]:
     dataset = ArithmeticDataset(
