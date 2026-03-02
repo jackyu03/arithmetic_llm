@@ -22,6 +22,13 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Path to tokenizer directory"
     )
     parser.add_argument(
+        "--tokenizer-type",
+        type=str,
+        default="digit",
+        choices=["digit", "bpe"],
+        help="Tokenizer type to load (default: digit)"
+    )
+    parser.add_argument(
         "--sft-checkpoint",
         type=str,
         required=True,
@@ -131,13 +138,13 @@ def main() -> None:
         output_dir=args.output_dir,
         config=config,
         data_mode=args.data_mode,
+        tokenizer_type=args.tokenizer_type,
         num_samples=args.num_samples,
         max_depth=args.max_depth,
         num_range=(args.num_range_min, args.num_range_max),
         filter_invalid_instruction=args.filter_invalid_instruction,
         candidate_sub_batch_size=args.candidate_sub_batch_size,
     )
-
 
 if __name__ == "__main__":
     main()
