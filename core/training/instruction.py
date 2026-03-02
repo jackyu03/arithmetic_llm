@@ -90,7 +90,7 @@ def train_instruction_model(
             'num_layers': 6,
             'dim_feedforward': 1024,
             'dropout': 0.1,
-            'max_seq_length': 512
+            'max_seq_length': 2048
         })
     else:
         model_config['vocab_size'] = vocab_size
@@ -104,7 +104,7 @@ def train_instruction_model(
         )
 
     model_config['vocab_size'] = vocab_size
-    max_seq_length = model_config.get('max_seq_length', 512)
+    max_seq_length = model_config.get('max_seq_length', 2048)
 
     # Create dataloaders
     use_contrastive = getattr(config, "use_contrastive", False)
@@ -116,7 +116,7 @@ def train_instruction_model(
         max_length=max_seq_length,
         train_split=0.9,
         shuffle=True,
-        num_workers=getattr(config, 'num_workers', 4),
+        num_workers=getattr(config, 'num_workers', 8),
         mode="instruction",
         use_curriculum=getattr(config, 'use_curriculum', False),
         curriculum_steps=getattr(config, 'curriculum_steps', 10000),

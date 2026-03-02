@@ -67,15 +67,15 @@ def main():
     parser.add_argument(
         "--batch-size",
         type=int,
-        default=32,
-        help="Batch size (default: 32)"
+        default=4,
+        help="Batch size (default: 4)"
     )
     
     parser.add_argument(
         "--num-epochs",
         type=int,
-        default=5,
-        help="Number of fine-tuning epochs (default: 5)"
+        default=3,
+        help="Number of fine-tuning epochs (default: 3)"
     )
     
     parser.add_argument(
@@ -142,8 +142,8 @@ def main():
     parser.add_argument(
         "--num-workers",
         type=int,
-        default=4,
-        help="Number of dataloader worker threads (default: 4)"
+        default=8,
+        help="Number of dataloader worker threads (default: 8)"
     )
     # Model configuration
     parser.add_argument(

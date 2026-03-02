@@ -96,7 +96,7 @@ def main():
     parser.add_argument(
         "--max-gen-length",
         type=int,
-        default=2048,
+        default=3072,
         help="Maximum generation length in tokens (default: 2048)"
     )
 

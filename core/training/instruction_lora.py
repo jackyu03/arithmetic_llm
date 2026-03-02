@@ -118,7 +118,7 @@ def train_instruction_model_lora(
             'num_layers': 6,
             'dim_feedforward': 1024,
             'dropout': 0.1,
-            'max_seq_length': 512
+            'max_seq_length': 2048
         })
     else:
         model_config['vocab_size'] = vocab_size
@@ -131,7 +131,7 @@ def train_instruction_model_lora(
         )
 
     model_config['vocab_size'] = vocab_size
-    max_seq_length = model_config.get('max_seq_length', 512)
+    max_seq_length = model_config.get('max_seq_length', 2048)
 
     # Create dataloaders
     print("Creating dataloaders...")

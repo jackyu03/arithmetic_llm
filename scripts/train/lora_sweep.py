@@ -139,7 +139,7 @@ def evaluate_model(
     min_depth: int = 1,
     max_depth: int = 5,
     num_range: tuple = (1, 20),
-    max_gen_length: int = 512,
+    max_gen_length: int = 3072,
     seed: int = 42,
 ) -> Tuple[Dict[str, Any], float, Optional[float], Optional[float]]:
     """Evaluate a model. Returns (metrics, eval_wall_sec, vram_alloc_mb, vram_reserved_mb)."""
@@ -177,7 +177,7 @@ def main() -> None:
     )
     # Paths
     parser.add_argument("--instruction-corpus-path", type=str, required=True,
-                        help="Path to instruction JSONL corpus")
+                        help="Path to instruction corpus")
     parser.add_argument("--tokenizer-path", type=str, required=True,
                         help="Path to tokenizer directory")
     parser.add_argument("--foundational-checkpoint", type=str, required=True,
@@ -187,7 +187,7 @@ def main() -> None:
     parser.add_argument("--tokenizer-type", type=str, default="digit", choices=["digit", "bpe"])
 
     # What to run
-    parser.add_argument("--lora-ranks", type=int, nargs="+", default=[2, 4, 8, 16, 32],
+    parser.add_argument("--lora-ranks", type=int, nargs="+", default=[2, 4, 8, 16, 32, 64],
                         help="LoRA ranks to sweep (default: 2 4 8 16 32)")
     parser.add_argument("--run-full-instruction", action="store_true",
                         help="Also train and evaluate full instruction model as baseline")
@@ -196,7 +196,7 @@ def main() -> None:
 
     # Training (shared)
     parser.add_argument("--num-epochs", type=int, default=3, help="Epochs per run (default: 3)")
-    parser.add_argument("--batch-size", type=int, default=32)
+    parser.add_argument("--batch-size", type=int, default=4)
     parser.add_argument("--learning-rate", type=float, default=5e-5)
     parser.add_argument("--warmup-steps", type=int, default=500)
     parser.add_argument("--device", type=str, default="auto")
@@ -209,11 +209,14 @@ def main() -> None:
     parser.add_argument("--num-eval-samples", type=int, default=500,
                         help="Test samples per evaluation (default: 500)")
     parser.add_argument("--eval-seed", type=int, default=42)
-    parser.add_argument("--max-gen-length", type=int, default=512)
+    parser.add_argument("--max-gen-length", type=int, default=3072)
 
     # Model config (optional)
     parser.add_argument("--model-config", type=str, default=None,
                         help="Path to model config JSON")
+
+    parser.add_argument("--num-workers", type=int, default=0,
+                        help="Dataloader workers (default: 0 for sweep reliability; use 8 to match foundational and speed up if stable)")
 
     args = parser.parse_args()
 
@@ -230,12 +233,12 @@ def main() -> None:
         gradient_clip=1.0,
         save_every=1000,
         device=device,
-        use_wandb=False,
+        use_wandb=True,
         use_contrastive=False,
         contrastive_weight=0.0,
         contrastive_temperature=0.0,
         use_curriculum=False,
-        num_workers=0,  # avoid multiprocessing issues in sweep
+        num_workers=args.num_workers,
     )
 
     model_config = None

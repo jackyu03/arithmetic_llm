@@ -8,7 +8,7 @@ python scripts/data/generate_foundational_plaintext.py --target-tokens 100000000
 
 # Generate mixed instruction corpus (valid + invalid)
 # This creates a balanced dataset without writing intermediate files
-python scripts/data/generate_instruction_corpus_mixed.py --num-samples 20000 --max-depth 4 --num-range 1 20 --invalid-rate 0 --output-mixed data/instruction_corpus.txt
+python scripts/data/generate_instruction_corpus_mixed.py --num-samples 10000000 --max-depth 5 --num-range 1 20 --invalid-rate 0 --output-mixed data/instruction_corpus.txt
 
 # Generate separate test corpus for evaluation (10K samples, minimal errors)
 # This provides a clean test set with only 1% invalid expressions
@@ -34,7 +34,7 @@ python scripts/eval/evaluate.py --model-path models/foundational/best_model.pt -
 
 
 # 4. Fine-tune instruction model
-python scripts/train/instruction.py --instruction-corpus-path data/instruction_corpus.txt --output-dir models/ --tokenizer-path data/tokenizer --foundational-checkpoint models/foundational_20260220_103758_473709/best_model.pt --num-epochs 10 --contrastive --contrastive-weight 0.3 --contrastive-temperature 0.05 --wandb
+python scripts/train/instruction.py --instruction-corpus-path data/instruction_corpus.txt --output-dir models/ --tokenizer-path data/tokenizer --foundational-checkpoint models/foundational/best_model.pt --contrastive --contrastive-weight 0.3 --contrastive-temperature 0.05 --wandb
 
 # 4.1 Evaluate the model
 python scripts/eval/evaluate.py --model-path models/instruction_20260220_122251_979267/best_model.pt --tokenizer-path data/tokenizer --max-gen-length 512 --batch-size 1 --num-samples 1000 --constrain-decoding
@@ -59,7 +59,7 @@ python scripts/train/lora_sweep.py --instruction-corpus-path data/instruction_co
 
 
 # Include full instruction baseline (train + evaluate):
-python scripts/train/lora_sweep.py --instruction-corpus-path data/instruction_corpus.txt --tokenizer-path data/tokenizer_digit --foundational-checkpoint models/foundational/best_model.pt --output-dir lora_sweep_results --run-full-instruction --lora-ranks 2 4 8 16 32 --num-epochs 3 --num-eval-samples 500
+python scripts/train/lora_sweep.py --instruction-corpus-path data/instruction_corpus.txt --tokenizer-path data/tokenizer_digit --foundational-checkpoint models/foundational/best_model.pt --output-dir lora_sweep_results --run-full-instruction --lora-ranks 2 4 8 16 32 64 --num-epochs 3 --num-eval-samples 500
 
 # Use an existing full-instruction checkpoint as baseline (no extra training):
 python scripts/train/lora_sweep.py --instruction-corpus-path data/instruction_corpus.txt --tokenizer-path data/tokenizer_digit --foundational-checkpoint models/foundational/best_model.pt --instruction-model-path models/instruction/best_model.pt --output-dir lora_sweep_results --lora-ranks 2 4 8 16 32 --num-eval-samples 500
