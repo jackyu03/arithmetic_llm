@@ -469,7 +469,9 @@ class GRPOTrainer:
             step_time = None
             accum_metrics = None
             accum_batches = 0
-            for batch_idx, batch in enumerate(train_dataloader):
+            
+            pbar = tqdm(train_dataloader, desc=f"Epoch {epoch + 1}/{self.config.num_epochs}", total=len(train_dataloader) if hasattr(train_dataloader, "__len__") else None)
+            for batch_idx, batch in enumerate(pbar):
                 did_step = False
                 if isinstance(batch, dict):
                     prompts = batch.get("prompts")
@@ -805,7 +807,7 @@ class GRPOTrainer:
         self.policy_model.eval()
         with torch.no_grad():
             initial_len = input_ids.shape[1]
-            for _ in tqdm(range(max_gen_length - initial_len), desc="Generating Rollouts", leave=False):
+            for _ in range(max_gen_length - initial_len):
                 if finished.all():
                     break
                     
