@@ -277,6 +277,7 @@ def train_epoch_with_contrastive(
     global_step: int,
     output_dir: str,
     tokenizer_vocab_size: int,
+    train_sampler: Optional[Any] = None,
 ) -> Tuple[float, int]:
     """Train one epoch with CE loss + contrastive loss (correct vs wrong completion)."""
     model.train()
@@ -339,6 +340,8 @@ def train_epoch_with_contrastive(
         torch.nn.utils.clip_grad_norm_(model.parameters(), config.gradient_clip)
         optimizer.step()
         scheduler.step()
+        if train_sampler is not None:
+            train_sampler.step()
 
         total_loss += loss.detach()
         num_batches += 1
