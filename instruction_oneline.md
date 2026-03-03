@@ -8,7 +8,7 @@ python scripts/data/generate_foundational_plaintext.py --target-tokens 100000000
 
 # Generate mixed instruction corpus (valid + invalid)
 # This creates a balanced dataset without writing intermediate files
-python scripts/data/generate_instruction_corpus_mixed.py --num-samples 10000000 --max-depth 5 --num-range 1 20 --invalid-rate 0 --output-mixed data/instruction_corpus.txt
+python scripts/data/generate_instruction_corpus_mixed.py --target-tokens 10000000 --max-depth 5 --num-range 1 20 --invalid-rate 0 --output-mixed data/instruction_corpus.txt
 
 # Generate separate test corpus for evaluation (10K samples, minimal errors)
 # This provides a clean test set with only 1% invalid expressions
@@ -63,6 +63,17 @@ python scripts/train/lora_sweep.py --instruction-corpus-path data/instruction_co
 
 # Use an existing full-instruction checkpoint as baseline (no extra training):
 python scripts/train/lora_sweep.py --instruction-corpus-path data/instruction_corpus.txt --tokenizer-path data/tokenizer_digit --foundational-checkpoint models/foundational/best_model.pt --instruction-model-path models/instruction/best_model.pt --output-dir lora_sweep_results --lora-ranks 2 4 8 16 32 --num-eval-samples 500
+
+
+
+# Default: baseline + 9 contrastive (weights 0.1,0.3,0.5 × temps 0.05,0.1,0.2), no eval
+python scripts/train/contrastive_sweep.py --instruction-corpus-path data/instruction_corpus.txt --tokenizer-path data/tokenizer_digit --foundational-checkpoint models/foundational/best_model.pt --output-dir contrastive_sweep_results
+
+# With evaluation after each training run
+python scripts/train/contrastive_sweep.py --instruction-corpus-path data/instruction_corpus.txt --tokenizer-path data/tokenizer_digit --foundational-checkpoint models/foundational/best_model.pt --eval --num-eval-samples 500
+
+# Custom grid and skip baseline
+python scripts/train/contrastive_sweep.py --instruction-corpus-path path/to/corpus.jsonl --tokenizer-path path/to/tokenizer --foundational-checkpoint path/to/foundational.pt --contrastive-weights 0.2 0.4 --contrastive-temperatures 0.05 0.15 --skip-baseline
 ```
 
 

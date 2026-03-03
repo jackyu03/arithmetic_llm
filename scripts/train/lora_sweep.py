@@ -188,18 +188,19 @@ def main() -> None:
 
     # What to run
     parser.add_argument("--lora-ranks", type=int, nargs="+", default=[2, 4, 8, 16, 32, 64],
-                        help="LoRA ranks to sweep (default: 2 4 8 16 32)")
+                        help="LoRA ranks to sweep (default: 2 4 8 16 32 64)")
     parser.add_argument("--run-full-instruction", action="store_true",
                         help="Also train and evaluate full instruction model as baseline")
     parser.add_argument("--instruction-model-path", type=str, default=None,
                         help="Use existing full instruction checkpoint as baseline (skip training)")
 
-    # Training (shared)
+    # Training (shared; align with scripts/train/instruction_lora.py and instruction.py where possible)
     parser.add_argument("--num-epochs", type=int, default=3, help="Epochs per run (default: 3)")
     parser.add_argument("--batch-size", type=int, default=4)
     parser.add_argument("--learning-rate", type=float, default=5e-5)
     parser.add_argument("--warmup-steps", type=int, default=500)
     parser.add_argument("--device", type=str, default="auto")
+    parser.add_argument("--wandb", action="store_true", help="Enable Weights & Biases logging (default: off for sweep)")
 
     # LoRA options (alpha scale)
     parser.add_argument("--lora-alpha-scale", type=float, default=2.0,
@@ -224,7 +225,7 @@ def main() -> None:
     base_dir = args.output_dir
     os.makedirs(base_dir, exist_ok=True)
 
-    # Training config shared by all runs
+    # Training config shared by all runs (consistent with standalone instruction_lora.py / instruction.py)
     training_config = TrainingConfig(
         learning_rate=args.learning_rate,
         batch_size=args.batch_size,
@@ -233,11 +234,12 @@ def main() -> None:
         gradient_clip=1.0,
         save_every=1000,
         device=device,
-        use_wandb=True,
+        use_wandb=args.wandb,
         use_contrastive=False,
         contrastive_weight=0.0,
         contrastive_temperature=0.0,
         use_curriculum=False,
+        curriculum_steps=10000,
         num_workers=args.num_workers,
     )
 
