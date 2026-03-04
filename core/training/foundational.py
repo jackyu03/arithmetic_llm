@@ -285,6 +285,7 @@ def train_epoch_with_contrastive(
     num_batches = 0
     contrastive_weight = getattr(config, "contrastive_weight", 0.1)
     contrastive_temperature = getattr(config, "contrastive_temperature", 0.1)
+    contrastive_warmup_steps = getattr(config, "contrastive_warmup_steps", 0)
 
     progress_bar = tqdm(train_dataloader, desc=f"Epoch {epoch}")
     for batch_idx, batch in enumerate(progress_bar):
@@ -309,8 +310,16 @@ def train_epoch_with_contrastive(
             targets.reshape(-1),
             ignore_index=-100,
         )
+        ce_loss_item = ce_loss.detach().item()
 
-        if wrong_input_ids is not None and contrastive_weight > 0:
+        # Apply contrastive only after warmup; use effective weight for this step
+        effective_cw = (
+            contrastive_weight
+            if (wrong_input_ids is not None and contrastive_weight > 0 and global_step >= contrastive_warmup_steps)
+            else 0.0
+        )
+
+        if wrong_input_ids is not None and effective_cw > 0:
             wrong_input_ids = wrong_input_ids.to(config.device)
             wrong_attention_mask = wrong_attention_mask.to(config.device)
             wrong_labels = wrong_labels.to(config.device)
@@ -329,7 +338,7 @@ def train_epoch_with_contrastive(
                 completion_mask_wrong=completion_mask_wrong,
                 temperature=contrastive_temperature,
             )
-            loss = ce_loss + contrastive_weight * cl_loss
+            loss = ce_loss + effective_cw * cl_loss
             cl_loss_item = cl_loss.detach().item()
         else:
             loss = ce_loss
@@ -350,6 +359,7 @@ def train_epoch_with_contrastive(
         if batch_idx % 10 == 0:
             postfix = {
                 "loss": loss.item(),
+                "ce": round(ce_loss_item, 4),
                 "avg_loss": (total_loss / num_batches).item(),
                 "lr": scheduler.get_last_lr()[0],
             }
@@ -364,6 +374,7 @@ def train_epoch_with_contrastive(
         ):
             log_dict = {
                 "train/loss": loss.item(),
+                "train/ce_loss": ce_loss_item,
                 "train/learning_rate": scheduler.get_last_lr()[0],
             }
             if wrong_input_ids is not None and contrastive_weight > 0:

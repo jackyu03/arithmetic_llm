@@ -28,6 +28,13 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Path to SFT checkpoint"
     )
     parser.add_argument(
+        "--tokenizer-type",
+        type=str,
+        default="digit",
+        choices=["digit", "bpe"],
+        help="Tokenizer type to load (default: digit)"
+    )
+    parser.add_argument(
         "--output-dir",
         type=str,
         required=True,
@@ -52,7 +59,7 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--top-k", type=int, default=50)
     parser.add_argument("--top-p", type=float, default=0.9)
     parser.add_argument("--kl-penalty-coef", type=float, default=0.05)
-    parser.add_argument("--max-gen-length", type=int, default=512)
+    parser.add_argument("--max-gen-length", type=int, default=3072)
     parser.add_argument("--gradient-accumulation-steps", type=int, default=1)
     parser.add_argument("--log-every", type=int, default=50)
     parser.add_argument(
@@ -131,6 +138,7 @@ def main() -> None:
         output_dir=args.output_dir,
         config=config,
         data_mode=args.data_mode,
+        tokenizer_type=args.tokenizer_type,
         num_samples=args.num_samples,
         max_depth=args.max_depth,
         num_range=(args.num_range_min, args.num_range_max),

@@ -155,7 +155,7 @@ def main() -> None:
     # Training (shared)
     parser.add_argument("--num-epochs", type=int, default=3, help="Epochs per run (default: 3)")
     parser.add_argument("--batch-size", type=int, default=4)
-    parser.add_argument("--learning-rate", type=float, default=5e-5)
+    parser.add_argument("--learning-rate", type=float, default=3e-5)
     parser.add_argument("--warmup-steps", type=int, default=500)
     parser.add_argument("--device", type=str, default="auto")
     parser.add_argument("--wandb", action="store_true", help="Enable Weights & Biases logging")
@@ -163,10 +163,18 @@ def main() -> None:
                         help="Dataloader workers (default: 0 for sweep reliability)")
 
     # Contrastive sweep grid
-    parser.add_argument("--contrastive-weights", type=float, nargs="+", default=[0.1, 0.3, 0.5],
-                        help="Contrastive loss weights to sweep (default: 0.1 0.3 0.5)")
+    parser.add_argument("--contrastive-weights", type=float, nargs="+", default=[0.01, 0.03, 0.05, 0.1],
+                        help="Contrastive loss weights to sweep (default: 0.01, 0.03, 0.05, 0.1)")
     parser.add_argument("--contrastive-temperatures", type=float, nargs="+", default=[0.05, 0.1, 0.2],
-                        help="Contrastive temperatures to sweep (default: 0.05 0.1 0.2)")
+                        help="Contrastive temperatures to sweep (default: 0.05, 0.1, 0.2; higher = gentler)")
+    parser.add_argument("--contrastive-warmup-steps", type=int, default=0,
+                        help="CE-only steps before adding contrastive loss (0 = no warmup, default: 0)")
+    parser.add_argument("--contrastive-warmup-epochs", type=float, default=0,
+                        help="If > 0, CE-only epochs before contrastive (overrides warmup-steps; e.g. 3 = first 3 epochs like baseline)")
+    parser.add_argument("--contrastive-num-epochs", type=int, default=None,
+                        help="Epochs for contrastive runs only (default: same as --num-epochs). E.g. 5 = 3 warmup + 2 contrastive when used with --contrastive-warmup-epochs 3")
+    parser.add_argument("--contrastive-learning-rate", type=float, default=None,
+                        help="Learning rate for contrastive runs only (default: use --learning-rate)")
     parser.add_argument("--skip-baseline", action="store_true",
                         help="Skip baseline (instruction-only) run")
 
@@ -198,11 +206,27 @@ def main() -> None:
     num_range = (1, 20)
     results: List[Dict[str, Any]] = []
 
-    def make_base_config(use_contrastive: bool, contrastive_weight: float = 0.0, contrastive_temperature: float = 0.05) -> TrainingConfig:
+    def _steps_per_epoch(corpus_path: str, batch_size: int, train_split: float = 0.9) -> int:
+        """Approximate training steps per epoch from corpus line count."""
+        with open(corpus_path, "r", encoding="utf-8", errors="ignore") as f:
+            num_lines = sum(1 for _ in f)
+        train_size = int(train_split * num_lines)
+        return max(1, (train_size + batch_size - 1) // batch_size)
+
+    def make_base_config(
+        use_contrastive: bool,
+        contrastive_weight: float = 0.0,
+        contrastive_temperature: float = 0.05,
+        contrastive_warmup_steps: int = 0,
+        learning_rate_override: Optional[float] = None,
+        num_epochs_override: Optional[int] = None,
+    ) -> TrainingConfig:
+        lr = learning_rate_override if learning_rate_override is not None else args.learning_rate
+        num_epochs = num_epochs_override if num_epochs_override is not None else args.num_epochs
         return TrainingConfig(
-            learning_rate=args.learning_rate,
+            learning_rate=lr,
             batch_size=args.batch_size,
-            num_epochs=args.num_epochs,
+            num_epochs=num_epochs,
             warmup_steps=args.warmup_steps,
             gradient_clip=1.0,
             save_every=1000,
@@ -211,6 +235,7 @@ def main() -> None:
             use_contrastive=use_contrastive,
             contrastive_weight=contrastive_weight,
             contrastive_temperature=contrastive_temperature,
+            contrastive_warmup_steps=contrastive_warmup_steps,
             use_curriculum=False,
             curriculum_steps=10000,
             num_workers=args.num_workers,
@@ -291,6 +316,18 @@ def main() -> None:
             })
 
     # --- Full instruction + contrastive (grid of weight × temperature) ---
+    # Resolve warmup steps for contrastive: --contrastive-warmup-epochs overrides --contrastive-warmup-steps when > 0
+    contrastive_warmup_steps_resolved = args.contrastive_warmup_steps
+    if getattr(args, "contrastive_warmup_epochs", 0) > 0:
+        steps_per_epoch = _steps_per_epoch(
+            args.instruction_corpus_path, args.batch_size
+        )
+        contrastive_warmup_steps_resolved = int(
+            getattr(args, "contrastive_warmup_epochs") * steps_per_epoch
+        )
+        print(f"Contrastive warmup: {getattr(args, 'contrastive_warmup_epochs')} epochs = {contrastive_warmup_steps_resolved} steps (steps_per_epoch={steps_per_epoch})")
+    contrastive_num_epochs = getattr(args, "contrastive_num_epochs", None)
+
     for cw in args.contrastive_weights:
         for ct in args.contrastive_temperatures:
             _set_training_seed(args.train_seed)
@@ -300,7 +337,14 @@ def main() -> None:
             print(f"Training FULL INSTRUCTION + CONTRASTIVE  weight={cw}  temperature={ct}")
             print("=" * 60)
             try:
-                config = make_base_config(use_contrastive=True, contrastive_weight=cw, contrastive_temperature=ct)
+                config = make_base_config(
+                    use_contrastive=True,
+                    contrastive_weight=cw,
+                    contrastive_temperature=ct,
+                    contrastive_warmup_steps=contrastive_warmup_steps_resolved,
+                    learning_rate_override=args.contrastive_learning_rate,
+                    num_epochs_override=contrastive_num_epochs,
+                )
                 checkpoint_path, train_sec, vram_train_alloc, vram_train_reserved = run_full_instruction_training(
                     instruction_corpus_path=args.instruction_corpus_path,
                     tokenizer_path=args.tokenizer_path,

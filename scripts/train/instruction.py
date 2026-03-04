@@ -140,6 +140,13 @@ def main():
     )
     
     parser.add_argument(
+        "--contrastive-warmup-steps",
+        type=int,
+        default=0,
+        help="CE-only steps before adding contrastive loss (0 = no warmup, default: 0)"
+    )
+    
+    parser.add_argument(
         "--num-workers",
         type=int,
         default=8,
@@ -163,6 +170,7 @@ def main():
             config.use_contrastive = True
             config.contrastive_weight = getattr(config, "contrastive_weight", 0.1) or args.contrastive_weight
             config.contrastive_temperature = getattr(config, "contrastive_temperature", 0.1) or args.contrastive_temperature
+            config.contrastive_warmup_steps = getattr(args, "contrastive_warmup_steps", 0) or getattr(config, "contrastive_warmup_steps", 0)
     else:
         # Determine device
         if args.device == "auto":
@@ -187,6 +195,7 @@ def main():
             use_contrastive=args.contrastive,
             contrastive_weight=args.contrastive_weight,
             contrastive_temperature=args.contrastive_temperature,
+            contrastive_warmup_steps=args.contrastive_warmup_steps,
             use_curriculum=args.use_curriculum,
             num_workers=args.num_workers,
         )
@@ -219,6 +228,7 @@ def main():
     if getattr(config, 'use_contrastive', False):
         print(f"    contrastive_weight: {getattr(config, 'contrastive_weight', 0.1)}")
         print(f"    contrastive_temperature: {getattr(config, 'contrastive_temperature', 0.1)}")
+        print(f"    contrastive_warmup_steps: {getattr(config, 'contrastive_warmup_steps', 0)}")
     print("=" * 60 + "\n")
     
     # Train model

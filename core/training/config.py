@@ -26,6 +26,7 @@ class TrainingConfig:
         use_contrastive: Whether to use contrastive loss (correct vs wrong completion)
         contrastive_weight: Weight for contrastive loss term
         contrastive_temperature: Temperature for contrastive margin
+        contrastive_warmup_steps: Steps of CE-only before adding contrastive loss (0 = no warmup)
     """
     
     learning_rate: float = 1e-4
@@ -47,6 +48,7 @@ class TrainingConfig:
     use_contrastive: bool = False
     contrastive_weight: float = 0.3
     contrastive_temperature: float = 0.05
+    contrastive_warmup_steps: int = 0
     lora_config: Optional[LoRAConfig] = None
     
     def validate(self) -> None:
@@ -145,6 +147,7 @@ class TrainingConfig:
         config_dict.setdefault("use_contrastive", False)
         config_dict.setdefault("contrastive_weight", 0.3)
         config_dict.setdefault("contrastive_temperature", 0.05)
+        config_dict.setdefault("contrastive_warmup_steps", 0)
 
         config = cls(**config_dict)
         

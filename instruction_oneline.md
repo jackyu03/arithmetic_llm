@@ -36,6 +36,8 @@ python scripts/eval/evaluate.py --model-path models/foundational/best_model.pt -
 # 4. Fine-tune instruction model
 python scripts/train/instruction.py --instruction-corpus-path data/instruction_corpus.txt --output-dir models/ --tokenizer-path data/tokenizer --foundational-checkpoint models/foundational/best_model.pt --contrastive --contrastive-weight 0.3 --contrastive-temperature 0.05 --wandb
 
+python scripts/train/instruction.py --instruction-corpus-path data/instruction_corpus.txt --output-dir models/ --tokenizer-path data/tokenizer_digit --foundational-checkpoint models/foundational/best_model.pt --contrastive --contrastive-weight 0.05 --contrastive-temperature 0.05 --wandb --contrastive-warmup-steps 1500
+
 # 4.1 Evaluate the model
 python scripts/eval/evaluate.py --model-path models/instruction_20260220_122251_979267/best_model.pt --tokenizer-path data/tokenizer --max-gen-length 512 --batch-size 1 --num-samples 1000 --constrain-decoding
 
@@ -46,7 +48,7 @@ python scripts/train/instruction_lora.py --instruction-corpus-path data/instruct
 python scripts/eval/evaluate.py --model-path models/instruction_lora_20260220_131932_609000/merged_model.pt --tokenizer-path data/tokenizer --max-gen-length 512 --batch-size 1 --num-samples 1000
 
 # 6 GRPO training (optional)
-python scripts/train/grpo.py --tokenizer data/tokenizer --sft-checkpoint models/instruction_20260221_044738_553100/best_model.pt --output-dir models/grpo --data-mode generated --log-every 1 --num-samples 1024 --num-epochs 3 --num-candidates 8 --max-gen-length 511 --temperature 0.8 --batch-size 1 --gradient-accumulation-steps 16 --kl-penalty-coef 0.05
+python scripts/train/grpo.py --tokenizer data/tokenizer_digit --sft-checkpoint models/instruction/best_model.pt --output-dir models/grpo --data-mode instruction --log-every 1 --num-samples 1024 --num-epochs 3 --num-candidates 8 --max-gen-length 511 --temperature 0.8 --batch-size 1 --gradient-accumulation-steps 16 --kl-penalty-coef 0.05
  
 
 # 6.1 eval GRPO model
