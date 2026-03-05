@@ -357,6 +357,8 @@ def train_epoch_with_contrastive(
                 temperature=contrastive_temperature,
                 result_token_mask_correct=r_c,
                 result_token_mask_wrong=r_w,
+                margin_max=getattr(config, "contrastive_margin_max", None),
+                hard_ratio=getattr(config, "contrastive_hard_ratio", 1.0),
             )
             loss = ce_loss + effective_cw * cl_loss
             cl_loss_item = cl_loss.detach().item()

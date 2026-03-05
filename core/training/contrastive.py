@@ -241,17 +241,23 @@ def compute_contrastive_loss(
     temperature: float = 0.1,
     result_token_mask_correct: Optional[torch.Tensor] = None,
     result_token_mask_wrong: Optional[torch.Tensor] = None,
+    margin_max: Optional[float] = None,
+    hard_ratio: float = 1.0,
 ) -> torch.Tensor:
     """Compute contrastive loss so correct completion is preferred over wrong.
 
     Per-sample margins then mean loss to avoid cancellation across the batch:
     For each sample i: L_correct_i = mean log P over mask, L_wrong_i = mean log P over mask.
     loss_i = softplus(-(L_correct_i - L_wrong_i) / temperature)
-    loss = mean(loss_i)
+    loss = mean(loss_i) over selected samples.
+
+    Hard-pair filtering (often the key to beat baseline when it's already high):
+    - margin_max: only backprop on samples where (Lc-Lw) < margin_max in raw log-prob space (e.g. 0.2~0.5).
+    - hard_ratio: only backprop on top hard_ratio*100%% samples by loss (e.g. 0.3 = top 30%%).
+    When both are set, margin filter is applied first, then top hard_ratio of those.
 
     When result_token_mask_* are provided, only positions of "Step ... = <result>"
-    and "Final Result: <answer>" are used (result-token contrastive), so the
-    margin is not diluted by sequence length. Otherwise uses full completion mask.
+    and "Final Result: <answer>" are used (result-token contrastive).
 
     Args:
         logits_correct: (batch, seq_len, vocab) from model on correct sequences
@@ -263,9 +269,11 @@ def compute_contrastive_loss(
         temperature: Scale for the margin (smaller = stronger push)
         result_token_mask_correct: (batch, seq_len) 1 only at result-token positions; if set, used for correct
         result_token_mask_wrong: (batch, seq_len) 1 only at result-token positions; if set, used for wrong
+        margin_max: If set, only samples with (Lc-Lw) < margin_max contribute (raw margin; e.g. 0.2~0.5)
+        hard_ratio: If < 1.0, only top hard_ratio fraction by loss contribute (e.g. 0.3 = top 30%%)
 
     Returns:
-        Scalar contrastive loss (mean over samples)
+        Scalar contrastive loss (mean over selected samples; 0 if none selected)
     """
     log_p_correct = F.log_softmax(logits_correct, dim=-1)
     log_p_wrong = F.log_softmax(logits_wrong, dim=-1)
@@ -293,9 +301,27 @@ def compute_contrastive_loss(
     L_correct_per = token_log_p_c.sum(dim=1) / n_c_per_sample
     L_wrong_per = token_log_p_w.sum(dim=1) / n_w_per_sample
 
-    margin_per = (L_correct_per - L_wrong_per) / temperature
+    margin_raw = L_correct_per - L_wrong_per
+    margin_per = margin_raw / temperature
     loss_per = F.softplus(-margin_per)
-    return loss_per.mean()
+
+    # Hard-pair filter: only backprop on hard samples (little extra cost, often big gain)
+    hard_mask = torch.ones_like(loss_per, dtype=torch.bool, device=loss_per.device)
+    if margin_max is not None:
+        hard_mask = hard_mask & (margin_raw < margin_max)
+    if hard_ratio < 1.0:
+        b = loss_per.size(0)
+        k = max(1, int(b * hard_ratio))
+        _, top_idx = torch.topk(loss_per, k, dim=0)
+        topk_mask = torch.zeros_like(loss_per, dtype=torch.bool, device=loss_per.device)
+        topk_mask.scatter_(0, top_idx, True)
+        hard_mask = hard_mask & topk_mask
+
+    n_hard = hard_mask.sum()
+    if n_hard == 0:
+        return loss_per.mean() * 0.0
+    loss = (loss_per * hard_mask.float()).sum() / n_hard
+    return loss
 
 
 def compute_expression_now_consistency_loss(

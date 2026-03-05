@@ -179,6 +179,10 @@ def main() -> None:
                         help="Use full-completion contrastive (default: result-token / step-level only)")
     parser.add_argument("--no-drop-subtree", action="store_true",
                         help="Disable Type C wrong answers (only wrong step/final, no drop-subtree negatives)")
+    parser.add_argument("--contrastive-margin-max", type=float, default=None,
+                        help="Only backprop on samples with (Lc-Lw) < this (raw margin, e.g. 0.2~0.5)")
+    parser.add_argument("--contrastive-hard-ratio", type=float, default=None,
+                        help="Only backprop on top this fraction by loss (e.g. 0.3 = top 30%%)")
     parser.add_argument("--skip-baseline", action="store_true",
                         help="Skip baseline (instruction-only) run")
 
@@ -230,6 +234,10 @@ def main() -> None:
         # Default: result-token (step-level) contrastive; --completion-level-contrastive uses full completion
         use_result_token = not getattr(args, "completion_level_contrastive", False)
         allow_drop_subtree = not getattr(args, "no_drop_subtree", False)
+        margin_max = getattr(args, "contrastive_margin_max", None)
+        hard_ratio = getattr(args, "contrastive_hard_ratio", None)
+        if hard_ratio is None:
+            hard_ratio = 1.0
         return TrainingConfig(
             learning_rate=lr,
             batch_size=args.batch_size,
@@ -245,6 +253,8 @@ def main() -> None:
             contrastive_warmup_steps=contrastive_warmup_steps,
             use_result_token_contrastive=use_result_token,
             contrastive_allow_drop_subtree=allow_drop_subtree,
+            contrastive_margin_max=margin_max,
+            contrastive_hard_ratio=hard_ratio,
             use_curriculum=False,
             curriculum_steps=10000,
             num_workers=args.num_workers,

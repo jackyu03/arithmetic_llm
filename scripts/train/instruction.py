@@ -151,6 +151,18 @@ def main():
         help="Contrastive: only wrong step/final, no drop-subtree (Type C) negatives"
     )
     parser.add_argument(
+        "--contrastive-margin-max",
+        type=float,
+        default=None,
+        help="Contrastive: only backprop on samples with (Lc-Lw) < this (raw margin, e.g. 0.2~0.5); default=all"
+    )
+    parser.add_argument(
+        "--contrastive-hard-ratio",
+        type=float,
+        default=1.0,
+        help="Contrastive: only backprop on top this fraction by loss (e.g. 0.3 = top 30%%); default=1.0"
+    )
+    parser.add_argument(
         "--contrastive-warmup-epochs",
         type=float,
         default=0,
@@ -185,6 +197,10 @@ def main():
             config.contrastive_warmup_epochs = getattr(args, "contrastive_warmup_epochs", 0) or getattr(config, "contrastive_warmup_epochs", 0)
             if getattr(args, "no_drop_subtree", False):
                 config.contrastive_allow_drop_subtree = False
+            if getattr(args, "contrastive_margin_max", None) is not None:
+                config.contrastive_margin_max = args.contrastive_margin_max
+            if getattr(args, "contrastive_hard_ratio", 1.0) != 1.0:
+                config.contrastive_hard_ratio = args.contrastive_hard_ratio
     else:
         # Determine device
         if args.device == "auto":
@@ -212,6 +228,8 @@ def main():
             contrastive_warmup_steps=args.contrastive_warmup_steps,
             contrastive_warmup_epochs=getattr(args, "contrastive_warmup_epochs", 0),
             contrastive_allow_drop_subtree=not getattr(args, "no_drop_subtree", False),
+            contrastive_margin_max=getattr(args, "contrastive_margin_max", None),
+            contrastive_hard_ratio=getattr(args, "contrastive_hard_ratio", 1.0),
             use_curriculum=args.use_curriculum,
             num_workers=args.num_workers,
         )
@@ -247,6 +265,8 @@ def main():
         print(f"    contrastive_warmup_steps: {getattr(config, 'contrastive_warmup_steps', 0)}")
         print(f"    contrastive_warmup_epochs: {getattr(config, 'contrastive_warmup_epochs', 0)}")
         print(f"    contrastive_allow_drop_subtree: {getattr(config, 'contrastive_allow_drop_subtree', True)}")
+        print(f"    contrastive_margin_max: {getattr(config, 'contrastive_margin_max', None)}")
+        print(f"    contrastive_hard_ratio: {getattr(config, 'contrastive_hard_ratio', 1.0)}")
     print("=" * 60 + "\n")
     
     # Train model
