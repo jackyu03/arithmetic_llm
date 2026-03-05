@@ -121,6 +121,7 @@ def train_instruction_model(
         use_curriculum=getattr(config, 'use_curriculum', False),
         curriculum_steps=getattr(config, 'curriculum_steps', 10000),
         use_contrastive=use_contrastive,
+        contrastive_allow_drop_subtree=getattr(config, "contrastive_allow_drop_subtree", True),
     )
     print(f"Training batches: {len(train_dataloader)}")
     print(f"Validation batches: {len(val_dataloader)}")

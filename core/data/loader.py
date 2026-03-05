@@ -84,6 +84,7 @@ class ArithmeticDataset(Dataset):
         max_length: int = 512,
         mode: str = "foundational",
         use_contrastive: bool = False,
+        contrastive_allow_drop_subtree: bool = True,
     ):
         """Initialize dataset.
         
@@ -93,12 +94,14 @@ class ArithmeticDataset(Dataset):
             max_length: Maximum sequence length
             mode: Training mode - "foundational" or "instruction"
             use_contrastive: If True (instruction only), __getitem__ returns wrong_* for contrastive learning
+            contrastive_allow_drop_subtree: If False, wrong solutions only use wrong step/final (no Type C drop-subtree)
         """
         self.corpus_path = corpus_path
         self.tokenizer = tokenizer
         self.max_length = max_length
         self.mode = mode
         self.use_contrastive = use_contrastive and (mode == "instruction")
+        self.contrastive_allow_drop_subtree = contrastive_allow_drop_subtree
         self.entries = []
         self.prompt_lengths = []  # Store prompt lengths for instruction mode
         self.complexities = []
@@ -270,7 +273,9 @@ class ArithmeticDataset(Dataset):
             prompt = self.prompts[idx]
             solution = self.solutions[idx]
             answer = self.answers[idx]
-            wrong_solution = make_wrong_solution(solution, answer, seed=idx)
+            wrong_solution = make_wrong_solution(
+                solution, answer, seed=idx, allow_drop_subtree=self.contrastive_allow_drop_subtree
+            )
             full_wrong = prompt + ' ' + wrong_solution
             wrong_ids = self.tokenizer.encode(full_wrong, add_special_tokens=True)
             if len(wrong_ids) > self.max_length:
@@ -412,6 +417,7 @@ def create_dataloaders(
     use_curriculum: bool = False,
     curriculum_steps: int = 10000,
     use_contrastive: bool = False,
+    contrastive_allow_drop_subtree: bool = True,
 ) -> Tuple[DataLoader, DataLoader, Optional[CurriculumSampler]]:
     """Create train and validation dataloaders.
     
@@ -427,6 +433,7 @@ def create_dataloaders(
         use_curriculum: If True, uses the CurriculumSampler for the training set.
         curriculum_steps: Total steps over which curriculum anneals to uniform random.
         use_contrastive: If True and batch has wrong_*, return wrong tensors too
+        contrastive_allow_drop_subtree: If False, wrong solutions only use wrong step/final (no Type C)
 
     Returns:
         Tuple of (train_dataloader, val_dataloader, train_sampler)
@@ -438,6 +445,7 @@ def create_dataloaders(
         max_length=max_length,
         mode=mode,
         use_contrastive=use_contrastive,
+        contrastive_allow_drop_subtree=contrastive_allow_drop_subtree,
     )
     
     # Split into train and validation

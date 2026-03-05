@@ -29,6 +29,7 @@ class TrainingConfig:
         contrastive_warmup_steps: Steps of CE-only before adding contrastive loss (0 = no warmup)
         contrastive_warmup_epochs: If > 0, CE-only epochs before contrastive (overrides warmup_steps; set from steps_per_epoch in training)
         use_result_token_contrastive: If True (default when contrastive), only score at "Step ... = <result>" and "Final Result: <answer>" positions
+        contrastive_allow_drop_subtree: If False, wrong solutions only use wrong step/final (no Type C drop-subtree)
     """
     
     learning_rate: float = 1e-4
@@ -53,6 +54,7 @@ class TrainingConfig:
     contrastive_warmup_steps: int = 0
     contrastive_warmup_epochs: float = 0.0
     use_result_token_contrastive: bool = True
+    contrastive_allow_drop_subtree: bool = True
     lora_config: Optional[LoRAConfig] = None
     
     def validate(self) -> None:
@@ -154,6 +156,7 @@ class TrainingConfig:
         config_dict.setdefault("contrastive_warmup_steps", 0)
         config_dict.setdefault("contrastive_warmup_epochs", 0.0)
         config_dict.setdefault("use_result_token_contrastive", True)
+        config_dict.setdefault("contrastive_allow_drop_subtree", True)
 
         config = cls(**config_dict)
         

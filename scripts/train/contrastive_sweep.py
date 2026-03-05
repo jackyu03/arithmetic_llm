@@ -177,6 +177,8 @@ def main() -> None:
                         help="Learning rate for contrastive runs only (default: use --learning-rate)")
     parser.add_argument("--completion-level-contrastive", action="store_true",
                         help="Use full-completion contrastive (default: result-token / step-level only)")
+    parser.add_argument("--no-drop-subtree", action="store_true",
+                        help="Disable Type C wrong answers (only wrong step/final, no drop-subtree negatives)")
     parser.add_argument("--skip-baseline", action="store_true",
                         help="Skip baseline (instruction-only) run")
 
@@ -227,6 +229,7 @@ def main() -> None:
         num_epochs = num_epochs_override if num_epochs_override is not None else args.num_epochs
         # Default: result-token (step-level) contrastive; --completion-level-contrastive uses full completion
         use_result_token = not getattr(args, "completion_level_contrastive", False)
+        allow_drop_subtree = not getattr(args, "no_drop_subtree", False)
         return TrainingConfig(
             learning_rate=lr,
             batch_size=args.batch_size,
@@ -241,6 +244,7 @@ def main() -> None:
             contrastive_temperature=contrastive_temperature,
             contrastive_warmup_steps=contrastive_warmup_steps,
             use_result_token_contrastive=use_result_token,
+            contrastive_allow_drop_subtree=allow_drop_subtree,
             use_curriculum=False,
             curriculum_steps=10000,
             num_workers=args.num_workers,

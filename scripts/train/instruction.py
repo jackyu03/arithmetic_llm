@@ -146,6 +146,11 @@ def main():
         help="CE-only steps before adding contrastive loss (0 = no warmup, default: 0)"
     )
     parser.add_argument(
+        "--no-drop-subtree",
+        action="store_true",
+        help="Contrastive: only wrong step/final, no drop-subtree (Type C) negatives"
+    )
+    parser.add_argument(
         "--contrastive-warmup-epochs",
         type=float,
         default=0,
@@ -178,6 +183,8 @@ def main():
             config.contrastive_temperature = getattr(config, "contrastive_temperature", 0.1) or args.contrastive_temperature
             config.contrastive_warmup_steps = getattr(args, "contrastive_warmup_steps", 0) or getattr(config, "contrastive_warmup_steps", 0)
             config.contrastive_warmup_epochs = getattr(args, "contrastive_warmup_epochs", 0) or getattr(config, "contrastive_warmup_epochs", 0)
+            if getattr(args, "no_drop_subtree", False):
+                config.contrastive_allow_drop_subtree = False
     else:
         # Determine device
         if args.device == "auto":
@@ -204,6 +211,7 @@ def main():
             contrastive_temperature=args.contrastive_temperature,
             contrastive_warmup_steps=args.contrastive_warmup_steps,
             contrastive_warmup_epochs=getattr(args, "contrastive_warmup_epochs", 0),
+            contrastive_allow_drop_subtree=not getattr(args, "no_drop_subtree", False),
             use_curriculum=args.use_curriculum,
             num_workers=args.num_workers,
         )
@@ -238,6 +246,7 @@ def main():
         print(f"    contrastive_temperature: {getattr(config, 'contrastive_temperature', 0.1)}")
         print(f"    contrastive_warmup_steps: {getattr(config, 'contrastive_warmup_steps', 0)}")
         print(f"    contrastive_warmup_epochs: {getattr(config, 'contrastive_warmup_epochs', 0)}")
+        print(f"    contrastive_allow_drop_subtree: {getattr(config, 'contrastive_allow_drop_subtree', True)}")
     print("=" * 60 + "\n")
     
     # Train model

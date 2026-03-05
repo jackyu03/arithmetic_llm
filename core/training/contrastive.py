@@ -98,20 +98,27 @@ def _drop_one_subtree(expr: str, rng: random.Random) -> Optional[str]:
     return result.strip()
 
 
-def make_wrong_solution(solution: str, correct_answer: int, seed: Optional[int] = None) -> str:
+def make_wrong_solution(
+    solution: str,
+    correct_answer: int,
+    seed: Optional[int] = None,
+    allow_drop_subtree: bool = True,
+) -> str:
     """Create a wrong solution by corrupting final result, a step, or dropping an expression subtree.
 
-    Uses three types of negatives:
-    - Type A: Replace "Final Result: N" with N+delta.
-    - Type B: Replace one step's result (e.g. "Step 2: 5 + 3 = 8" -> "= 9").
+    Uses three types of negatives (when allow_drop_subtree=True):
+    - Type A: Step + final: replace one step's result and "Final Result: N".
+    - Type B: Final only: replace "Final Result: N" with N+delta.
     - Type C: Drop one top-level subtree in a random "Expression now: EXPR" line
-      (e.g. "(1+9) + (3+(5-4)) + 1" -> "(1+9) + (3+(5-4))" or "(1+9) + 1") so the
-      model learns not to drop subtrees.
+      (e.g. "(1+9) + (3+(5-4)) + 1" -> "(1+9) + (3+(5-4))" or "(1+9) + 1").
+
+    When allow_drop_subtree=False, only Type A and B are used (no drop-subtree negatives).
 
     Args:
         solution: Full solution text including steps and "Final Result: N"
         correct_answer: The correct final numeric answer
         seed: Optional seed (e.g. sample index) to pick corruption type
+        allow_drop_subtree: If False, never use Type C (only wrong step/final)
 
     Returns:
         Solution string with one type of corruption applied
@@ -120,7 +127,10 @@ def make_wrong_solution(solution: str, correct_answer: int, seed: Optional[int] 
     delta = rng.choice([-3, -2, -1, 1, 2, 3])
 
     # Choose corruption type: 0 = step + final, 1 = final only, 2 = drop subtree
-    corruption_type = (seed % 3) if seed is not None else rng.randint(0, 2)
+    if allow_drop_subtree:
+        corruption_type = (seed % 3) if seed is not None else rng.randint(0, 2)
+    else:
+        corruption_type = (seed % 2) if seed is not None else rng.randint(0, 1)
 
     out = solution
 
