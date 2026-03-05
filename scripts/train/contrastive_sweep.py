@@ -163,10 +163,10 @@ def main() -> None:
                         help="Dataloader workers (default: 0 for sweep reliability)")
 
     # Contrastive sweep grid
-    parser.add_argument("--contrastive-weights", type=float, nargs="+", default=[0.01, 0.03, 0.05, 0.1],
-                        help="Contrastive loss weights to sweep (default: 0.01, 0.03, 0.05, 0.1)")
-    parser.add_argument("--contrastive-temperatures", type=float, nargs="+", default=[0.05, 0.1, 0.2],
-                        help="Contrastive temperatures to sweep (default: 0.05, 0.1, 0.2; higher = gentler)")
+    parser.add_argument("--contrastive-weights", type=float, nargs="+", default=[0.01, 0.03, 0.05],
+                        help="Contrastive loss weights to sweep (default: 0.01, 0.03, 0.05)")
+    parser.add_argument("--contrastive-temperatures", type=float, nargs="+", default=[0.05, 0.1],
+                        help="Contrastive temperatures to sweep (default: 0.05, 0.1; higher = gentler)")
     parser.add_argument("--contrastive-warmup-steps", type=int, default=0,
                         help="CE-only steps before adding contrastive loss (0 = no warmup, default: 0)")
     parser.add_argument("--contrastive-warmup-epochs", type=float, default=0,
