@@ -126,6 +126,11 @@ def train_instruction_model(
     print(f"Validation batches: {len(val_dataloader)}")
     if use_contrastive:
         print("Contrastive learning enabled (correct vs wrong completion)")
+        warmup_epochs = getattr(config, "contrastive_warmup_epochs", 0) or 0
+        if warmup_epochs > 0:
+            steps_per_epoch = len(train_dataloader)
+            config.contrastive_warmup_steps = int(warmup_epochs * steps_per_epoch)
+            print(f"Contrastive warmup: {warmup_epochs} epochs = {config.contrastive_warmup_steps} steps")
     
     model = ArithmeticTransformer(**model_config)
     

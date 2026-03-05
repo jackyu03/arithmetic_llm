@@ -27,6 +27,7 @@ class TrainingConfig:
         contrastive_weight: Weight for contrastive loss term
         contrastive_temperature: Temperature for contrastive margin
         contrastive_warmup_steps: Steps of CE-only before adding contrastive loss (0 = no warmup)
+        contrastive_warmup_epochs: If > 0, CE-only epochs before contrastive (overrides warmup_steps; set from steps_per_epoch in training)
     """
     
     learning_rate: float = 1e-4
@@ -49,6 +50,7 @@ class TrainingConfig:
     contrastive_weight: float = 0.3
     contrastive_temperature: float = 0.05
     contrastive_warmup_steps: int = 0
+    contrastive_warmup_epochs: float = 0.0
     lora_config: Optional[LoRAConfig] = None
     
     def validate(self) -> None:
@@ -148,6 +150,7 @@ class TrainingConfig:
         config_dict.setdefault("contrastive_weight", 0.3)
         config_dict.setdefault("contrastive_temperature", 0.05)
         config_dict.setdefault("contrastive_warmup_steps", 0)
+        config_dict.setdefault("contrastive_warmup_epochs", 0.0)
 
         config = cls(**config_dict)
         

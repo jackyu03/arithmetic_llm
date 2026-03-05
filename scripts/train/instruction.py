@@ -145,6 +145,12 @@ def main():
         default=0,
         help="CE-only steps before adding contrastive loss (0 = no warmup, default: 0)"
     )
+    parser.add_argument(
+        "--contrastive-warmup-epochs",
+        type=float,
+        default=0,
+        help="If > 0, CE-only epochs before contrastive (overrides warmup-steps; e.g. 3 = first 3 epochs like baseline)"
+    )
     
     parser.add_argument(
         "--num-workers",
@@ -171,6 +177,7 @@ def main():
             config.contrastive_weight = getattr(config, "contrastive_weight", 0.1) or args.contrastive_weight
             config.contrastive_temperature = getattr(config, "contrastive_temperature", 0.1) or args.contrastive_temperature
             config.contrastive_warmup_steps = getattr(args, "contrastive_warmup_steps", 0) or getattr(config, "contrastive_warmup_steps", 0)
+            config.contrastive_warmup_epochs = getattr(args, "contrastive_warmup_epochs", 0) or getattr(config, "contrastive_warmup_epochs", 0)
     else:
         # Determine device
         if args.device == "auto":
@@ -196,6 +203,7 @@ def main():
             contrastive_weight=args.contrastive_weight,
             contrastive_temperature=args.contrastive_temperature,
             contrastive_warmup_steps=args.contrastive_warmup_steps,
+            contrastive_warmup_epochs=getattr(args, "contrastive_warmup_epochs", 0),
             use_curriculum=args.use_curriculum,
             num_workers=args.num_workers,
         )
@@ -229,6 +237,7 @@ def main():
         print(f"    contrastive_weight: {getattr(config, 'contrastive_weight', 0.1)}")
         print(f"    contrastive_temperature: {getattr(config, 'contrastive_temperature', 0.1)}")
         print(f"    contrastive_warmup_steps: {getattr(config, 'contrastive_warmup_steps', 0)}")
+        print(f"    contrastive_warmup_epochs: {getattr(config, 'contrastive_warmup_epochs', 0)}")
     print("=" * 60 + "\n")
     
     # Train model

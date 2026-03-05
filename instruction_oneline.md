@@ -36,10 +36,10 @@ python scripts/eval/evaluate.py --model-path models/foundational/best_model.pt -
 # 4. Fine-tune instruction model
 python scripts/train/instruction.py --instruction-corpus-path data/instruction_corpus.txt --output-dir models/ --tokenizer-path data/tokenizer --foundational-checkpoint models/foundational/best_model.pt --contrastive --contrastive-weight 0.3 --contrastive-temperature 0.05 --wandb
 
-python scripts/train/instruction.py --instruction-corpus-path data/instruction_corpus.txt --output-dir models/ --tokenizer-path data/tokenizer_digit --foundational-checkpoint models/foundational/best_model.pt --contrastive --contrastive-weight 0.05 --contrastive-temperature 0.05 --wandb --contrastive-warmup-steps 1500
+python scripts/train/instruction.py --instruction-corpus-path data/instruction_corpus.txt --output-dir models/ --tokenizer-path data/tokenizer_digit --foundational-checkpoint models/foundational/best_model.pt --contrastive --contrastive-weight 0.05 --contrastive-temperature 0.05 --wandb --contrastive-warmup-epochs 2
 
 # 4.1 Evaluate the model
-python scripts/eval/evaluate.py --model-path models/instruction_20260220_122251_979267/best_model.pt --tokenizer-path data/tokenizer --max-gen-length 512 --batch-size 1 --num-samples 1000 --constrain-decoding
+python scripts/eval/evaluate.py --model-path models/best_model.pt --tokenizer-path data/tokenizer_digit
 
 # 5 Fine-tune with LoRA adapters (optional)
 python scripts/train/instruction_lora.py --instruction-corpus-path data/instruction_corpus.txt --output-dir models/ --tokenizer-path data/tokenizer --foundational-checkpoint models/foundational_20260220_103758_473709/best_model.pt --num-epochs 10 --lora-rank 8 --lora-alpha 16 --lora-target-modules attention --save-merged-model
