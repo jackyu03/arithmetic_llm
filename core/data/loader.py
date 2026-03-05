@@ -9,7 +9,7 @@ from core.data.tokenizer import (
     ArithmeticBPETokenizer, ArithmeticDigitTokenizer
 )
 from core.eval.evaluator import eval_expression
-from core.training.contrastive import make_wrong_solution
+from core.training.contrastive import make_wrong_solution, get_result_token_mask
 
 class CurriculumSampler(Sampler):
     """
@@ -283,6 +283,15 @@ class ArithmeticDataset(Dataset):
             out['wrong_attention_mask'] = [1] * len(wrong_ids)
             out['wrong_length'] = len(wrong_ids)
             out['wrong_labels'] = wrong_labels
+            # Result-token masks: 1 only at "Step ... = <result>" and "Final Result: <answer>" positions
+            full_text = prompt + ' ' + solution
+            solution_start = len(prompt) + 1
+            out['result_token_mask_correct'] = get_result_token_mask(
+                full_text, solution_start, len(token_ids) - 1, self.tokenizer
+            )
+            out['result_token_mask_wrong'] = get_result_token_mask(
+                full_wrong, solution_start, len(wrong_ids) - 1, self.tokenizer
+            )
         return out
 
 
@@ -352,6 +361,8 @@ def collate_fn(
         wrong_input_ids = []
         wrong_attention_masks = []
         wrong_labels = []
+        result_mask_correct_list = []
+        result_mask_wrong_list = []
         for item in batch:
             wlen = item["wrong_length"]
             wrong_input_ids.append(
@@ -362,9 +373,20 @@ def collate_fn(
             )
             wl = item["wrong_labels"] + [-100] * (max_wrong - wlen)
             wrong_labels.append(wl)
+            # Result-token masks: length = (seq_len - 1) to match targets
+            rlen_c = item["length"] - 1
+            rlen_w = wlen - 1
+            result_mask_correct_list.append(
+                item["result_token_mask_correct"] + [0] * (max_length - 1 - rlen_c)
+            )
+            result_mask_wrong_list.append(
+                item["result_token_mask_wrong"] + [0] * (max_wrong - 1 - rlen_w)
+            )
         wrong_input_ids_t = torch.tensor(wrong_input_ids, dtype=torch.long)
         wrong_attention_masks_t = torch.tensor(wrong_attention_masks, dtype=torch.long)
         wrong_labels_t = torch.tensor(wrong_labels, dtype=torch.long)
+        result_token_mask_correct_t = torch.tensor(result_mask_correct_list, dtype=torch.long)
+        result_token_mask_wrong_t = torch.tensor(result_mask_wrong_list, dtype=torch.long)
         return (
             input_ids_t,
             attention_masks_t,
@@ -372,6 +394,8 @@ def collate_fn(
             wrong_input_ids_t,
             wrong_attention_masks_t,
             wrong_labels_t,
+            result_token_mask_correct_t,
+            result_token_mask_wrong_t,
         )
     return input_ids_t, attention_masks_t, labels_t
 

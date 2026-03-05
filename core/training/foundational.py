@@ -288,13 +288,20 @@ def train_epoch_with_contrastive(
     contrastive_warmup_steps = getattr(config, "contrastive_warmup_steps", 0)
 
     progress_bar = tqdm(train_dataloader, desc=f"Epoch {epoch}")
+    use_result_token = getattr(config, "use_result_token_contrastive", True)
     for batch_idx, batch in enumerate(progress_bar):
-        if len(batch) == 6:
+        if len(batch) == 8:
+            (input_ids, attention_mask, labels,
+             wrong_input_ids, wrong_attention_mask, wrong_labels,
+             result_token_mask_correct, result_token_mask_wrong) = batch
+        elif len(batch) == 6:
             (input_ids, attention_mask, labels,
              wrong_input_ids, wrong_attention_mask, wrong_labels) = batch
+            result_token_mask_correct = result_token_mask_wrong = None
         else:
             input_ids, attention_mask, labels = batch
             wrong_input_ids = wrong_attention_mask = wrong_labels = None
+            result_token_mask_correct = result_token_mask_wrong = None
 
         input_ids = input_ids.to(config.device)
         attention_mask = attention_mask.to(config.device)
@@ -329,6 +336,17 @@ def train_epoch_with_contrastive(
             logits_wrong = model(wrong_inputs, wrong_attn)
             completion_mask_correct = (targets != -100)
             completion_mask_wrong = (wrong_targets != -100)
+            # Use result-token masks when available and enabled (stronger signal at Step/Final Result)
+            r_c = None
+            r_w = None
+            if use_result_token and result_token_mask_correct is not None and result_token_mask_wrong is not None:
+                r_c = result_token_mask_correct.to(config.device)
+                r_w = result_token_mask_wrong.to(config.device)
+                # Align to target length (batch may have different seq lengths for wrong)
+                if r_c.size(1) != targets.size(1):
+                    r_c = r_c[:, : targets.size(1)]
+                if r_w.size(1) != wrong_targets.size(1):
+                    r_w = r_w[:, : wrong_targets.size(1)]
             cl_loss = compute_contrastive_loss(
                 logits_correct=logits,
                 labels_correct=targets,
@@ -337,6 +355,8 @@ def train_epoch_with_contrastive(
                 completion_mask_correct=completion_mask_correct,
                 completion_mask_wrong=completion_mask_wrong,
                 temperature=contrastive_temperature,
+                result_token_mask_correct=r_c,
+                result_token_mask_wrong=r_w,
             )
             loss = ce_loss + effective_cw * cl_loss
             cl_loss_item = cl_loss.detach().item()

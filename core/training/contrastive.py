@@ -3,18 +3,29 @@
 Trains the model to assign higher likelihood to correct solutions and lower
 to incorrect ones (e.g. wrong step, wrong final answer, or dropped expression
 subtrees), improving discrimination.
+
+Supports:
+- Completion-level contrastive (default): margin over full completion logP.
+- Result-token contrastive: margin only at "Step ... = <result>" and
+  "Final Result: <answer>" positions, so the signal is not diluted by sequence length.
 """
 
 import re
 import torch
 import torch.nn.functional as F
 import random
-from typing import Optional, Tuple, List
+from typing import Optional, Tuple, List, Any
 
 
 # Step pattern: "Step N: A op B = R"
 _STEP_PATTERN = re.compile(
     r"(Step\s+\d+\s*:\s*-?\d+\s*[+-]\s*-?\d+\s*=\s*)(-?\d+)",
+    flags=re.IGNORECASE,
+)
+
+# Final Result: N (capture the number)
+_FINAL_RESULT_PATTERN = re.compile(
+    r"Final\s+Result\s*:\s*([+-]?\s*\d+)",
     flags=re.IGNORECASE,
 )
 
@@ -157,6 +168,59 @@ def make_wrong_solution(solution: str, correct_answer: int, seed: Optional[int] 
     return out
 
 
+def _result_spans_in_solution(solution: str) -> List[Tuple[int, int]]:
+    """Return (start, end) character spans of each result in solution (relative to solution string).
+    Order: step results first (by occurrence), then final result.
+    """
+    spans: List[Tuple[int, int]] = []
+    for m in _STEP_PATTERN.finditer(solution):
+        spans.append((m.start(2), m.end(2)))
+    fm = _FINAL_RESULT_PATTERN.search(solution)
+    if fm:
+        spans.append((fm.start(1), fm.end(1)))
+    return spans
+
+
+def get_result_token_mask(
+    full_text: str,
+    solution_start_char: int,
+    target_length: int,
+    tokenizer: Any,
+) -> List[int]:
+    """Build a 0/1 mask of length target_length: 1 only at positions that predict a result token.
+
+    Result positions are: the number after "= " in "Step N: ... = <result>", and
+    the number in "Final Result: <answer>". Used for result-token contrastive loss
+    so the margin is not diluted by sequence length.
+
+    Args:
+        full_text: Full string that was tokenized (prompt + ' ' + solution).
+        solution_start_char: Character index in full_text where solution starts.
+        target_length: Length of target sequence (len(token_ids) - 1).
+        tokenizer: Tokenizer with encode(..., add_special_tokens=True).
+
+    Returns:
+        List of 0/1 of length target_length. 1 at positions that predict a result token.
+    """
+    solution = full_text[solution_start_char:]
+    spans = _result_spans_in_solution(solution)
+    mask = [0] * target_length
+    for (sol_start, sol_end) in spans:
+        full_start = solution_start_char + sol_start
+        full_end = solution_start_char + sol_end
+        if full_end <= 0:
+            continue
+        prefix = full_text[:full_end]
+        ids = tokenizer.encode(prefix, add_special_tokens=True)
+        # Token index (0-based) of the token containing the end of the result
+        token_index = len(ids) - 1
+        # Target position that predicts this token
+        target_index = token_index - 1
+        if 0 <= target_index < target_length:
+            mask[target_index] = 1
+    return mask
+
+
 def compute_contrastive_loss(
     logits_correct: torch.Tensor,
     labels_correct: torch.Tensor,
@@ -165,22 +229,30 @@ def compute_contrastive_loss(
     completion_mask_correct: torch.Tensor,
     completion_mask_wrong: torch.Tensor,
     temperature: float = 0.1,
+    result_token_mask_correct: Optional[torch.Tensor] = None,
+    result_token_mask_wrong: Optional[torch.Tensor] = None,
 ) -> torch.Tensor:
     """Compute contrastive loss so correct completion is preferred over wrong.
 
     Per-sample margins then mean loss to avoid cancellation across the batch:
-    For each sample i: L_correct_i = mean log P(correct completion), L_wrong_i = mean log P(wrong).
+    For each sample i: L_correct_i = mean log P over mask, L_wrong_i = mean log P over mask.
     loss_i = softplus(-(L_correct_i - L_wrong_i) / temperature)
     loss = mean(loss_i)
+
+    When result_token_mask_* are provided, only positions of "Step ... = <result>"
+    and "Final Result: <answer>" are used (result-token contrastive), so the
+    margin is not diluted by sequence length. Otherwise uses full completion mask.
 
     Args:
         logits_correct: (batch, seq_len, vocab) from model on correct sequences
         labels_correct: (batch, seq_len) next-token targets, -100 on prompt
         logits_wrong: (batch, seq_len, vocab) from model on wrong sequences
         labels_wrong: (batch, seq_len) next-token targets for wrong, -100 on prompt
-        completion_mask_correct: (batch, seq_len) 1 where we score correct
-        completion_mask_wrong: (batch, seq_len) 1 where we score wrong
+        completion_mask_correct: (batch, seq_len) 1 where we score correct (fallback)
+        completion_mask_wrong: (batch, seq_len) 1 where we score wrong (fallback)
         temperature: Scale for the margin (smaller = stronger push)
+        result_token_mask_correct: (batch, seq_len) 1 only at result-token positions; if set, used for correct
+        result_token_mask_wrong: (batch, seq_len) 1 only at result-token positions; if set, used for wrong
 
     Returns:
         Scalar contrastive loss (mean over samples)
@@ -193,15 +265,58 @@ def compute_contrastive_loss(
     token_log_p_c = log_p_correct.gather(dim=-1, index=targets_c).squeeze(-1)
     token_log_p_w = log_p_wrong.gather(dim=-1, index=targets_w).squeeze(-1)
 
-    token_log_p_c = token_log_p_c.masked_fill(~completion_mask_correct.bool(), 0.0)
-    token_log_p_w = token_log_p_w.masked_fill(~completion_mask_wrong.bool(), 0.0)
+    use_result_token = (
+        result_token_mask_correct is not None and result_token_mask_wrong is not None
+    )
+    if use_result_token:
+        mask_c = result_token_mask_correct.bool()
+        mask_w = result_token_mask_wrong.bool()
+    else:
+        mask_c = completion_mask_correct.bool()
+        mask_w = completion_mask_wrong.bool()
 
-    # Per-sample: sum over seq, divide by count for that sample
-    n_c_per_sample = completion_mask_correct.sum(dim=1).clamp(min=1)
-    n_w_per_sample = completion_mask_wrong.sum(dim=1).clamp(min=1)
+    token_log_p_c = token_log_p_c.masked_fill(~mask_c, 0.0)
+    token_log_p_w = token_log_p_w.masked_fill(~mask_w, 0.0)
+
+    n_c_per_sample = mask_c.sum(dim=1).clamp(min=1)
+    n_w_per_sample = mask_w.sum(dim=1).clamp(min=1)
     L_correct_per = token_log_p_c.sum(dim=1) / n_c_per_sample
     L_wrong_per = token_log_p_w.sum(dim=1) / n_w_per_sample
 
     margin_per = (L_correct_per - L_wrong_per) / temperature
     loss_per = F.softplus(-margin_per)
     return loss_per.mean()
+
+
+def compute_expression_now_consistency_loss(
+    logits: torch.Tensor,
+    expr_now_spans: List[Tuple[int, int]],
+    expr_now_correct_ids: List[List[int]],
+) -> torch.Tensor:
+    """Cross-entropy over "Expression now: EXPR" spans to enforce correct EXPR (no drop subtree).
+
+    Use when you have ground-truth EXPR token spans and correct token ids (e.g. from
+    eval_expression). For batch, call per sample and mean, or stack and loop.
+
+    Args:
+        logits: (seq_len, vocab) for one sample
+        expr_now_spans: List of (start, end) target indices for each EXPR span
+        expr_now_correct_ids: List of correct token id lists for each EXPR
+
+    Returns:
+        Scalar CE loss (mean over all EXPR tokens in this sample).
+    """
+    if not expr_now_spans or not expr_now_correct_ids:
+        return logits.new_zeros(1).squeeze()
+    device = logits.device
+    losses = []
+    for (start, end), correct_ids in zip(expr_now_spans, expr_now_correct_ids):
+        if start >= end or end > logits.size(0) or not correct_ids:
+            continue
+        length = min(end - start, len(correct_ids))
+        logits_slice = logits[start : start + length].contiguous()
+        targets = torch.tensor(correct_ids[:length], dtype=torch.long, device=device)
+        losses.append(F.cross_entropy(logits_slice, targets, reduction="mean"))
+    if not losses:
+        return logits.new_zeros(1).squeeze()
+    return torch.stack(losses).mean()
