@@ -146,12 +146,19 @@ def make_wrong_solution(
     delta = rng.choice([-3, -2, -1, 1, 2, 3])
 
     # Choose corruption type: 0 = step+final, 1 = final only, 2 = drop subtree, 3 = tens-digit wrong
+    # Tens-digit wrong (type 3) 70%; others share 30% so they still appear but less often
     if allow_drop_subtree:
-        corruption_type = (seed % 4) if seed is not None else rng.randint(0, 3)
+        corruption_type = rng.choices(
+            [0, 1, 2, 3],
+            weights=[0.10, 0.10, 0.10, 0.70],
+            k=1,
+        )[0]
     else:
-        corruption_type = (seed % 3) if seed is not None else rng.randint(0, 2)
-        if corruption_type == 2:
-            corruption_type = 3  # use tens-digit wrong instead of drop subtree
+        corruption_type = rng.choices(
+            [0, 1, 3],
+            weights=[0.15, 0.15, 0.70],
+            k=1,
+        )[0]
 
     out = solution
 
