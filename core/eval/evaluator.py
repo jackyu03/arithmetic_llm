@@ -395,6 +395,7 @@ class ModelEvaluator:
         correct = 0
         parseable = 0
         expr_now_consistent = 0
+        steps_all_correct = 0
         total_length = 0
         sample_outputs = []
         
@@ -433,6 +434,11 @@ class ModelEvaluator:
             expr_now_ok = self.verify_expression_now_consistent(expression, generated_text)
             if expr_now_ok:
                 expr_now_consistent += 1
+
+            # Check if each step arithmetic is correct (Step N: A op B = C)
+            steps_ok = self.verify_reasoning_steps(expression, generated_text)
+            if steps_ok:
+                steps_all_correct += 1
             
             # Save sample outputs
             if log_all_questions or i < 10:
@@ -454,11 +460,13 @@ class ModelEvaluator:
             'exact_match_accuracy': (correct / total * 100) if total > 0 else 0.0,
             'parse_success_rate': (parseable / total * 100) if total > 0 else 0.0,
             'expression_now_consistent_rate': (expr_now_consistent / total * 100) if total > 0 else 0.0,
+            'steps_all_correct_rate': (steps_all_correct / total * 100) if total > 0 else 0.0,
             'avg_generation_length': (total_length / total) if total > 0 else 0.0,
             'total_samples': total,
             'correct_samples': correct,
             'parseable_samples': parseable,
             'expression_now_consistent_samples': expr_now_consistent,
+            'steps_all_correct_samples': steps_all_correct,
             'total_generated_tokens': total_generated_tokens,
         }
         

@@ -80,6 +80,25 @@ def _top_level_terms(expr: str) -> List[Tuple[str, Optional[str]]]:
     return terms
 
 
+def _tens_digit_wrong_value(val: int, rng: random.Random) -> Optional[int]:
+    """Return a value that differs only in the tens digit (e.g. 20 -> 10 or 30), or None if not applicable.
+    Only applies when abs(val) >= 10. Single-digit numbers return None.
+    """
+    if abs(val) < 10:
+        return None
+    sign = 1 if val >= 0 else -1
+    abs_val = abs(val)
+    tens = (abs_val // 10) % 10
+    ones = abs_val % 10
+    wrong_tens = tens + rng.choice([-1, 1])
+    if wrong_tens < 0:
+        wrong_tens = 0
+    if wrong_tens > 9:
+        wrong_tens = 9
+    new_abs = wrong_tens * 10 + ones
+    return sign * new_abs if new_abs != abs_val else None
+
+
 def _drop_one_subtree(expr: str, rng: random.Random) -> Optional[str]:
     """Return expression with one top-level term dropped, or None if not possible.
     
@@ -106,13 +125,13 @@ def make_wrong_solution(
 ) -> str:
     """Create a wrong solution by corrupting final result, a step, or dropping an expression subtree.
 
-    Uses three types of negatives (when allow_drop_subtree=True):
+    Uses four types of negatives (when allow_drop_subtree=True):
     - Type A: Step + final: replace one step's result and "Final Result: N".
     - Type B: Final only: replace "Final Result: N" with N+delta.
-    - Type C: Drop one top-level subtree in a random "Expression now: EXPR" line
-      (e.g. "(1+9) + (3+(5-4)) + 1" -> "(1+9) + (3+(5-4))" or "(1+9) + 1").
+    - Type C: Drop one top-level subtree in a random "Expression now: EXPR" line.
+    - Type D: Tens-digit wrong: in one step with result >= 10, flip the tens digit (e.g. 20->10 or 30).
 
-    When allow_drop_subtree=False, only Type A and B are used (no drop-subtree negatives).
+    When allow_drop_subtree=False, only Type A, B and D are used (no drop-subtree negatives).
 
     Args:
         solution: Full solution text including steps and "Final Result: N"
@@ -126,13 +145,40 @@ def make_wrong_solution(
     rng = random.Random(seed) if seed is not None else random.Random()
     delta = rng.choice([-3, -2, -1, 1, 2, 3])
 
-    # Choose corruption type: 0 = step + final, 1 = final only, 2 = drop subtree
+    # Choose corruption type: 0 = step+final, 1 = final only, 2 = drop subtree, 3 = tens-digit wrong
     if allow_drop_subtree:
-        corruption_type = (seed % 3) if seed is not None else rng.randint(0, 2)
+        corruption_type = (seed % 4) if seed is not None else rng.randint(0, 3)
     else:
-        corruption_type = (seed % 2) if seed is not None else rng.randint(0, 1)
+        corruption_type = (seed % 3) if seed is not None else rng.randint(0, 2)
+        if corruption_type == 2:
+            corruption_type = 3  # use tens-digit wrong instead of drop subtree
 
     out = solution
+
+    if corruption_type == 3:
+        # Type D: Tens-digit wrong in one step (e.g. 20 -> 10 or 30)
+        steps = list(_STEP_PATTERN.finditer(out))
+        candidates = []
+        for m in steps:
+            try:
+                result_val = int(m.group(2))
+                if abs(result_val) >= 10:
+                    wrong_val = _tens_digit_wrong_value(result_val, rng)
+                    if wrong_val is not None:
+                        candidates.append((m, wrong_val))
+            except ValueError:
+                pass
+        if candidates:
+            match, wrong_result = rng.choice(candidates)
+            wrong_str = str(wrong_result)
+            out = out[: match.start(2)] + wrong_str + out[match.end(2) :]
+        wrong_answer = correct_answer + delta
+        if wrong_answer != correct_answer:
+            wrong_str = str(wrong_answer)
+            pattern = re.compile(r"Final Result\s*:\s*[+-]?\s*\d+", flags=re.IGNORECASE)
+            if pattern.search(out):
+                out = pattern.sub(f"Final Result: {wrong_str}", out, count=1)
+        return out
 
     if corruption_type == 2:
         # Type C: Drop one subtree in an "Expression now: EXPR" line
