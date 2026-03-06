@@ -516,6 +516,13 @@ class ArithmeticTransformer(nn.Module):
                                 if 0 <= tid < next_token_logits.shape[1]:
                                     next_token_logits[b, tid] = float("-inf")
                 
+                # Avoid multinomial on all-masked logits (would be nan and trigger CUDA assert)
+                max_logit = next_token_logits.max(dim=-1, keepdim=True).values
+                all_masked = (max_logit == float("-inf")).squeeze(-1)
+                if all_masked.any():
+                    next_token_logits = next_token_logits.clone()
+                    next_token_logits[all_masked, 0] = 0.0  # allow at least token 0 so argmax/multinomial is valid
+                
                 # Sample or greedy: use argmax when temperature is 0 to avoid
                 # "dropping" digits (e.g. model sampling newline instead of "8")
                 if use_greedy:

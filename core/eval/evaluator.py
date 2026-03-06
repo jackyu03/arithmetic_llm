@@ -493,6 +493,14 @@ class ModelEvaluator:
         if eos_token_id is not None and input_ids and input_ids[-1] == eos_token_id:
             input_ids = input_ids[:-1]
         
+        # Avoid CUDA assert: model embedding expects ids in [0, vocab_size); tokenizer must match
+        model_vocab_size = getattr(self.model, "vocab_size", None)
+        if model_vocab_size is not None and max(input_ids) >= model_vocab_size:
+            raise ValueError(
+                f"Tokenizer produced token id >= model vocab_size ({model_vocab_size}). "
+                "Use the tokenizer that was used when training this checkpoint."
+            )
+        
         input_tensor = torch.tensor([input_ids], dtype=torch.long).to(self.device)
         
         forbid_fn = (lambda g: get_forbidden_token_ids_for_constraint(self.tokenizer, g)) if use_constrained_decoding else None
