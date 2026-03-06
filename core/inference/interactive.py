@@ -149,8 +149,8 @@ class InteractiveArithmeticSolver:
         Returns:
             Generated solution with reasoning steps
         """
-        # Format expression as instruction prompt
-        prompt = f"Evaluate: {expression} <think>"
+        # Match training format: "Evaluate: ... <think> \n" so model sees same context
+        prompt = f"Evaluate: {expression} <think> \n"
         
         # Encode prompt (with BOS, without EOS since we're generating)
         input_ids = self.tokenizer.encode(prompt, add_special_tokens=True)
@@ -168,7 +168,9 @@ class InteractiveArithmeticSolver:
         temp = 0.1 if is_digit else 0.8
         k = 5 if is_digit else 50
         
-        # Generate solution
+        # Generate solution with same constraints as evaluator (no leading junk: forbid newline until Step/Expression now)
+        from core.eval.evaluator import get_forbidden_token_ids_for_constraint
+        forbid_fn = lambda g: get_forbidden_token_ids_for_constraint(self.tokenizer, g)
         with torch.no_grad():
             generated_ids = self.model.generate(
                 input_tensor,
@@ -176,7 +178,8 @@ class InteractiveArithmeticSolver:
                 temperature=temp,
                 top_k=k,
                 top_p=0.9,
-                eos_token_id=eos_token_id
+                eos_token_id=eos_token_id,
+                forbid_token_ids_fn=forbid_fn,
             )
         
         # Decode generated text (skip special tokens for cleaner output)

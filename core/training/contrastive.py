@@ -252,7 +252,8 @@ def compute_contrastive_loss(
     loss = mean(loss_i) over selected samples.
 
     Hard-pair filtering (often the key to beat baseline when it's already high):
-    - margin_max: only backprop on samples where (Lc-Lw) < margin_max in raw log-prob space (e.g. 0.2~0.5).
+    - margin_max: only backprop on samples where (Lc-Lw) < margin_max in raw log-prob space.
+      With result-token contrastive, (Lc-Lw) is often 0.5~2+ once model is decent; use 0.5~2.0 or try hard_ratio instead.
     - hard_ratio: only backprop on top hard_ratio*100%% samples by loss (e.g. 0.3 = top 30%%).
     When both are set, margin filter is applied first, then top hard_ratio of those.
 

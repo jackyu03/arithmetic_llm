@@ -44,25 +44,40 @@ def _in_unbalanced_expression_suffix(text: str) -> bool:
     return open_paren > 0
 
 
+def _in_leading_junk_after_think(text: str) -> bool:
+    """True if content after <think> has no 'Step' or 'Expression now' yet (leading junk).
+    Constrains generation: forbid newline until we see step content, so the model cannot
+    emit non-step tokens then newline (e.g. single digit + newline like '1\\n', '12\\n1\\n1').
+    """
+    idx = text.rfind("<think>")
+    if idx == -1:
+        return False
+    after = text[idx + len("<think>"):].lstrip()
+    if not after:
+        return True
+    return "Step" not in after and "Expression now" not in after
+
+
 def get_forbidden_token_ids_for_constraint(
     tokenizer: Any,
     generated: torch.Tensor,
 ) -> List[Set[int]]:
-    """Return token IDs to forbid per batch item to avoid breaking step/expression.
+    """Return token IDs to forbid per batch item (used at generation time).
     
-    Forbid newline, 'Step', '</think>' when:
-    - Inside a step (after 'Step N :' but before '= number'), or
-    - Inside 'Expression now: ...' with unbalanced parentheses (so we don't
-      drop subtrees like '(3+(5-4)) + 1' by cutting at '(1+9) + (3+').
+    - Leading junk: after <think>, forbid newline until 'Step' or 'Expression now' appears.
+      Prevents the model from generating non-step content then newline (e.g. '1\\n', '12\\n1\\n1').
+    - Inside a step / unbalanced expr: forbid newline, 'Step', '</think>'.
     """
     batch_size = generated.shape[0]
     vocab = getattr(tokenizer, "id2token", {})
     if not vocab:
         return [set() for _ in range(batch_size)]
+    newline_ids: Set[int] = set()
     forbidden_ids: Set[int] = set()
     for tid, t in vocab.items():
         t_clean = t.replace("</w>", "").strip()
         if "\n" in t_clean:
+            newline_ids.add(tid)
             forbidden_ids.add(tid)
         if t_clean.lower() == "step":
             forbidden_ids.add(tid)
@@ -72,7 +87,9 @@ def get_forbidden_token_ids_for_constraint(
     for b in range(batch_size):
         ids = generated[b].tolist()
         text = tokenizer.decode(ids, skip_special_tokens=True)
-        if _in_step_suffix(text) or _in_unbalanced_expression_suffix(text):
+        if _in_leading_junk_after_think(text):
+            out.append(newline_ids)
+        elif _in_step_suffix(text) or _in_unbalanced_expression_suffix(text):
             out.append(set(forbidden_ids))
         else:
             out.append(set())
@@ -333,10 +350,6 @@ class ModelEvaluator:
     ) -> Dict[str, float]:
         """Evaluate model on test set.
         
-        Use temperature=0 (greedy) or low temperature (e.g. 0.3) to reduce
-        "dropped" digits in thinking (e.g. model emitting newline instead of "+8").
-        use_constrained_decoding=True forbids newline/Step/</think> mid-step to reduce dropped steps.
-        
         Args:
             num_samples: Number of test expressions to generate
             max_depth: Maximum depth of test expressions
@@ -394,15 +407,16 @@ class ModelEvaluator:
         total_generated_tokens = 0
         for i, (expression, ground_truth, depth) in tqdm(enumerate(zip(test_expressions, test_answers, test_depths)), total=len(test_expressions), desc="Evaluating"):
 
-            prompt = f"Evaluate: {expression}\n<think>\n"
-            generated_text = self._generate_solution(prompt, max_length=max_gen_length)
-            
+            # Match training format: "Evaluate: ... <think> \n" so model sees same context as in loader
+            prompt = f"Evaluate: {expression} <think> \n"
+            generated_text = self._generate_solution(prompt, max_length=max_gen_length, use_constrained_decoding=True)
+
             total_length += len(generated_text.split())
             # Count tokens for efficiency metrics (exclude prompt)
             gen_tokens = self.tokenizer.encode(generated_text, add_special_tokens=False)
             total_generated_tokens += len(gen_tokens)
 
-            # Extract final result
+            # Extract final result from raw model output (no post-processing; metrics must reflect model as-is)
             predicted_result = self.extract_final_result(generated_text)
             
             # Check if output is parseable
@@ -418,7 +432,7 @@ class ModelEvaluator:
             if expr_now_ok:
                 expr_now_consistent += 1
             
-            # Save sample outputs
+            # Save sample outputs (raw generated_text)
             if log_all_questions or i < 10:
                 sample_outputs.append({
                     'question_number': i + 1,

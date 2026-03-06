@@ -36,7 +36,7 @@ python scripts/eval/evaluate.py --model-path models/foundational/best_model.pt -
 # 4. Fine-tune instruction model
 python scripts/train/instruction.py --instruction-corpus-path data/instruction_corpus.txt --output-dir models/ --tokenizer-path data/tokenizer --foundational-checkpoint models/foundational/best_model.pt --contrastive --contrastive-weight 0.3 --contrastive-temperature 0.05 --wandb
 
-python scripts/train/instruction.py --instruction-corpus-path data/instruction_corpus.txt --output-dir models/ --tokenizer-path data/tokenizer_digit --foundational-checkpoint models/foundational/best_model.pt --contrastive --contrastive-weight 0.05 --contrastive-temperature 0.05 --wandb --contrastive-warmup-epochs 2
+python scripts/train/instruction.py --instruction-corpus-path data/instruction_corpus.txt --output-dir models/instruction --tokenizer-path data/tokenizer_digit --foundational-checkpoint models/foundational/best_model.pt --contrastive --contrastive-weight 0.05 --contrastive-temperature 0.03 --wandb --contrastive-warmup-epochs 2 --contrastive-margin-max 0.3
 
 # 4.1 Evaluate the model
 python scripts/eval/evaluate.py --model-path models/best_model.pt --tokenizer-path data/tokenizer_digit
