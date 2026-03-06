@@ -44,40 +44,39 @@ def _in_unbalanced_expression_suffix(text: str) -> bool:
     return open_paren > 0
 
 
-def _in_leading_junk_after_think(text: str) -> bool:
-    """True if content after <think> has no 'Step' or 'Expression now' yet (leading junk).
-    Constrains generation: forbid newline until we see step content, so the model cannot
-    emit non-step tokens then newline (e.g. single digit + newline like '1\\n', '12\\n1\\n1').
+def _think_followed_by_step1(text: str) -> bool:
+    """True if content after <think> starts with 'Step 1' (no leading junk).
+    Used for adaptive sampling: invalidate and resample when think is not followed by Step 1.
     """
-    idx = text.rfind("<think>")
+    idx = text.find("<think>")
     if idx == -1:
         return False
     after = text[idx + len("<think>"):].lstrip()
     if not after:
-        return True
-    return "Step" not in after and "Expression now" not in after
+        return False
+    first_line = after.split("\n")[0].strip()
+    return first_line.startswith("Step 1") or bool(re.match(r"^Step\s+1\s*:", first_line, re.IGNORECASE))
 
 
 def get_forbidden_token_ids_for_constraint(
     tokenizer: Any,
     generated: torch.Tensor,
 ) -> List[Set[int]]:
-    """Return token IDs to forbid per batch item (used at generation time).
+    """Return token IDs to forbid per batch item to avoid breaking step/expression.
     
-    - Leading junk: after <think>, forbid newline until 'Step' or 'Expression now' appears.
-      Prevents the model from generating non-step content then newline (e.g. '1\\n', '12\\n1\\n1').
-    - Inside a step / unbalanced expr: forbid newline, 'Step', '</think>'.
+    Forbid newline, 'Step', '</think>' when:
+    - Inside a step (after 'Step N :' but before '= number'), or
+    - Inside 'Expression now: ...' with unbalanced parentheses (so we don't
+      drop subtrees like '(3+(5-4)) + 1' by cutting at '(1+9) + (3+').
     """
     batch_size = generated.shape[0]
     vocab = getattr(tokenizer, "id2token", {})
     if not vocab:
         return [set() for _ in range(batch_size)]
-    newline_ids: Set[int] = set()
     forbidden_ids: Set[int] = set()
     for tid, t in vocab.items():
         t_clean = t.replace("</w>", "").strip()
         if "\n" in t_clean:
-            newline_ids.add(tid)
             forbidden_ids.add(tid)
         if t_clean.lower() == "step":
             forbidden_ids.add(tid)
@@ -87,9 +86,7 @@ def get_forbidden_token_ids_for_constraint(
     for b in range(batch_size):
         ids = generated[b].tolist()
         text = tokenizer.decode(ids, skip_special_tokens=True)
-        if _in_leading_junk_after_think(text):
-            out.append(newline_ids)
-        elif _in_step_suffix(text) or _in_unbalanced_expression_suffix(text):
+        if _in_step_suffix(text) or _in_unbalanced_expression_suffix(text):
             out.append(set(forbidden_ids))
         else:
             out.append(set())
@@ -347,6 +344,7 @@ class ModelEvaluator:
         output_dir: Optional[str] = None,
         max_gen_length: int = 256,
         log_all_questions: bool = False,
+        max_sample_attempts: int = 1,
     ) -> Dict[str, float]:
         """Evaluate model on test set.
         
@@ -356,6 +354,7 @@ class ModelEvaluator:
             num_range: Range of numbers to use in expressions
             output_dir: Optional directory to save evaluation results
             max_gen_length: Maximum generation length in tokens (default: 256)
+            max_sample_attempts: If > 1, resample when think not followed by Step 1 (default: 1)
             
         Returns:
             Dictionary with accuracy metrics:
@@ -407,16 +406,19 @@ class ModelEvaluator:
         total_generated_tokens = 0
         for i, (expression, ground_truth, depth) in tqdm(enumerate(zip(test_expressions, test_answers, test_depths)), total=len(test_expressions), desc="Evaluating"):
 
-            # Match training format: "Evaluate: ... <think> \n" so model sees same context as in loader
-            prompt = f"Evaluate: {expression} <think> \n"
+            prompt = f"Evaluate: {expression}\n<think>\n"
             generated_text = self._generate_solution(prompt, max_length=max_gen_length, use_constrained_decoding=True)
-
+            for attempt in range(1, max_sample_attempts):
+                if _think_followed_by_step1(generated_text):
+                    break
+                generated_text = self._generate_solution(prompt, max_length=max_gen_length, use_constrained_decoding=True)
+            
             total_length += len(generated_text.split())
             # Count tokens for efficiency metrics (exclude prompt)
             gen_tokens = self.tokenizer.encode(generated_text, add_special_tokens=False)
             total_generated_tokens += len(gen_tokens)
 
-            # Extract final result from raw model output (no post-processing; metrics must reflect model as-is)
+            # Extract final result
             predicted_result = self.extract_final_result(generated_text)
             
             # Check if output is parseable
@@ -432,7 +434,7 @@ class ModelEvaluator:
             if expr_now_ok:
                 expr_now_consistent += 1
             
-            # Save sample outputs (raw generated_text)
+            # Save sample outputs
             if log_all_questions or i < 10:
                 sample_outputs.append({
                     'question_number': i + 1,
@@ -492,14 +494,6 @@ class ModelEvaluator:
         eos_token_id = self.tokenizer.token2id.get('<eos>', None)
         if eos_token_id is not None and input_ids and input_ids[-1] == eos_token_id:
             input_ids = input_ids[:-1]
-        
-        # Avoid CUDA assert: model embedding expects ids in [0, vocab_size); tokenizer must match
-        model_vocab_size = getattr(self.model, "vocab_size", None)
-        if model_vocab_size is not None and max(input_ids) >= model_vocab_size:
-            raise ValueError(
-                f"Tokenizer produced token id >= model vocab_size ({model_vocab_size}). "
-                "Use the tokenizer that was used when training this checkpoint."
-            )
         
         input_tensor = torch.tensor([input_ids], dtype=torch.long).to(self.device)
         

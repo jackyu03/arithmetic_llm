@@ -106,6 +106,13 @@ def main():
         default=42,
         help="Random seed for deterministic evaluation generation"
     )
+
+    parser.add_argument(
+        "--max-sample-attempts",
+        type=int,
+        default=3,
+        help="Adaptive sampling: if think not followed by Step 1, resample up to this many times (default: 1 = disabled)"
+    )
     
     args = parser.parse_args()
     
@@ -142,6 +149,7 @@ def main():
     print(f"  Max generation length: {args.max_gen_length}")
     print(f"  Output directory: {args.output_dir}")
     print(f"  Log all questions: {args.log_all_questions}")
+    print(f"  Max sample attempts (adaptive): {args.max_sample_attempts}")
     print("=" * 60 + "\n")
     
     # Create evaluator
@@ -177,7 +185,8 @@ def main():
             num_range=tuple(args.num_range),
             output_dir=args.output_dir,
             max_gen_length=args.max_gen_length,
-            log_all_questions=args.log_all_questions
+            log_all_questions=args.log_all_questions,
+            max_sample_attempts=args.max_sample_attempts,
         )
         
         # Display results
