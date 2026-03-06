@@ -407,11 +407,11 @@ class ModelEvaluator:
         for i, (expression, ground_truth, depth) in tqdm(enumerate(zip(test_expressions, test_answers, test_depths)), total=len(test_expressions), desc="Evaluating"):
 
             prompt = f"Evaluate: {expression}\n<think>\n"
-            generated_text = self._generate_solution(prompt, max_length=max_gen_length, use_constrained_decoding=True)
+            generated_text = self._generate_solution(prompt, max_length=max_gen_length)
             for attempt in range(1, max_sample_attempts):
                 if _think_followed_by_step1(generated_text):
                     break
-                generated_text = self._generate_solution(prompt, max_length=max_gen_length, use_constrained_decoding=True)
+                generated_text = self._generate_solution(prompt, max_length=max_gen_length)
             
             total_length += len(generated_text.split())
             # Count tokens for efficiency metrics (exclude prompt)
