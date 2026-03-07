@@ -99,6 +99,18 @@ def _tens_digit_wrong_value(val: int, rng: random.Random) -> Optional[int]:
     return sign * new_abs if new_abs != abs_val else None
 
 
+def _replace_number_whole_word_after(text: str, after_start: int, old_val: int, new_val: str) -> str:
+    """Replace every whole-word occurrence of old_val with new_val in text[after_start:].
+    Avoids replacing digits inside other numbers (e.g. 12 inside 212).
+    """
+    rest = text[after_start:]
+    # Match the number as a standalone token: not preceded/followed by digit (or minus for negative)
+    old_str = str(old_val)
+    pattern = re.compile(r"(?<![0-9])" + re.escape(old_str) + r"(?![0-9])")
+    rest = pattern.sub(new_val, rest)
+    return text[:after_start] + rest
+
+
 def _drop_one_subtree(expr: str, rng: random.Random) -> Optional[str]:
     """Return expression with one top-level term dropped, or None if not possible.
     
@@ -123,15 +135,13 @@ def make_wrong_solution(
     seed: Optional[int] = None,
     allow_drop_subtree: bool = True,
 ) -> str:
-    """Create a wrong solution by corrupting final result, a step, or dropping an expression subtree.
+    """Create a wrong solution: tens-digit wrong in one step then propagate to end, or (low prob) drop subtree.
 
-    Uses four types of negatives (when allow_drop_subtree=True):
-    - Type A: Step + final: replace one step's result and "Final Result: N".
-    - Type B: Final only: replace "Final Result: N" with N+delta.
-    - Type C: Drop one top-level subtree in a random "Expression now: EXPR" line.
-    - Type D: Tens-digit wrong: in one step with result >= 10, flip the tens digit (e.g. 20->10 or 30).
+    - Main type (tens-digit + propagate): Pick one step with result >= 10, flip tens digit (e.g. 20->10 or 30),
+      then replace that value everywhere in the rest of the solution so the error is carried through to the end.
+    - Type C (small prob, only when allow_drop_subtree): Drop one top-level subtree in an "Expression now" line.
 
-    When allow_drop_subtree=False, only Type A, B and D are used (no drop-subtree negatives).
+    Type A/B (final-only or arbitrary step+final) are removed so negatives match real model errors.
 
     Args:
         solution: Full solution text including steps and "Final Result: N"
@@ -145,53 +155,25 @@ def make_wrong_solution(
     rng = random.Random(seed) if seed is not None else random.Random()
     delta = rng.choice([-3, -2, -1, 1, 2, 3])
 
-    # Choose corruption type: 0 = step+final, 1 = final only, 2 = drop subtree, 3 = tens-digit wrong
+    # 0 = tens-digit wrong + propagate (main), 1 = C drop subtree (small prob)
     if allow_drop_subtree:
-        corruption_type = (seed % 4) if seed is not None else rng.randint(0, 3)
+        corruption_type = rng.choices([0, 1], weights=[0.92, 0.08], k=1)[0]
     else:
-        corruption_type = (seed % 3) if seed is not None else rng.randint(0, 2)
-        if corruption_type == 2:
-            corruption_type = 3  # use tens-digit wrong instead of drop subtree
+        corruption_type = 0
 
     out = solution
 
-    if corruption_type == 3:
-        # Type D: Tens-digit wrong in one step (e.g. 20 -> 10 or 30)
-        steps = list(_STEP_PATTERN.finditer(out))
-        candidates = []
-        for m in steps:
-            try:
-                result_val = int(m.group(2))
-                if abs(result_val) >= 10:
-                    wrong_val = _tens_digit_wrong_value(result_val, rng)
-                    if wrong_val is not None:
-                        candidates.append((m, wrong_val))
-            except ValueError:
-                pass
-        if candidates:
-            match, wrong_result = rng.choice(candidates)
-            wrong_str = str(wrong_result)
-            out = out[: match.start(2)] + wrong_str + out[match.end(2) :]
-        wrong_answer = correct_answer + delta
-        if wrong_answer != correct_answer:
-            wrong_str = str(wrong_answer)
-            pattern = re.compile(r"Final Result\s*:\s*[+-]?\s*\d+", flags=re.IGNORECASE)
-            if pattern.search(out):
-                out = pattern.sub(f"Final Result: {wrong_str}", out, count=1)
-        return out
-
-    if corruption_type == 2:
-        # Type C: Drop one subtree in an "Expression now: EXPR" line
+    if corruption_type == 1:
+        # Type C: Drop one subtree in an "Expression now: EXPR" line (small prob)
         expr_now_matches = list(_EXPR_NOW_PATTERN.finditer(out))
         if expr_now_matches:
             match = rng.choice(expr_now_matches)
-            prefix = match.group(1)   # "Expression now: "
+            prefix = match.group(1)
             expr = match.group(2).strip()
             dropped = _drop_one_subtree(expr, rng)
             if dropped is not None:
                 new_line = prefix + dropped
                 out = out[: match.start()] + new_line + out[match.end() :]
-        # Also corrupt final so the negative is clearly wrong
         wrong_answer = correct_answer + delta
         wrong_str = str(wrong_answer)
         pattern = re.compile(r"Final Result\s*:\s*[+-]?\s*\d+", flags=re.IGNORECASE)
@@ -199,22 +181,40 @@ def make_wrong_solution(
             out = pattern.sub(f"Final Result: {wrong_str}", out, count=1)
         return out
 
-    # Type A/B: step corruption and/or final
-    use_step_corruption = corruption_type == 0
-    if use_step_corruption:
-        steps = list(_STEP_PATTERN.finditer(out))
+    # Main: tens-digit wrong in one step (result >= 10), then propagate to the end; fallback: delta + propagate
+    steps = list(_STEP_PATTERN.finditer(out))
+    candidates = []
+    for m in steps:
+        try:
+            result_val = int(m.group(2))
+            if abs(result_val) >= 10:
+                wrong_val = _tens_digit_wrong_value(result_val, rng)
+                if wrong_val is not None:
+                    candidates.append((m, result_val, wrong_val))
+        except ValueError:
+            pass
+    if candidates:
+        match, result_val, wrong_result = rng.choice(candidates)
+        wrong_str = str(wrong_result)
+        out = out[: match.start(2)] + wrong_str + out[match.end(2) :]
+        after_end = match.end(2)
+        out = _replace_number_whole_word_after(out, after_end, result_val, wrong_str)
+    else:
+        # No step with tens digit: corrupt one step by delta and propagate
         if steps:
             idx = rng.randrange(len(steps))
             match = steps[idx]
             try:
                 result_val = int(match.group(2))
                 wrong_result = result_val + delta
-                if wrong_result != result_val:
-                    wrong_str = str(wrong_result)
-                    out = out[: match.start(2)] + wrong_str + out[match.end(2) :]
+                if wrong_result == result_val:
+                    wrong_result = result_val + (1 if result_val >= 0 else -1)
+                wrong_str = str(wrong_result)
+                out = out[: match.start(2)] + wrong_str + out[match.end(2) :]
+                after_end = match.end(2)
+                out = _replace_number_whole_word_after(out, after_end, result_val, wrong_str)
             except ValueError:
                 pass
-
     wrong_answer = correct_answer + delta
     if wrong_answer != correct_answer:
         wrong_str = str(wrong_answer)
@@ -249,6 +249,14 @@ def get_result_token_mask(
     the number in "Final Result: <answer>". Used for result-token contrastive loss
     so the margin is not diluted by sequence length.
 
+    Multi-token results: If the result number is tokenized as multiple tokens
+    (e.g. digit tokenizer gives "12" -> "1", "2"), we mark every position that
+    predicts any of those tokens. Otherwise contrastive signal only on the last
+    digit would miss the tens-digit errors (which happen at earlier tokens).
+
+    Convention: logits[i] predicts input_ids[i+1], so the position that predicts
+    token at index k is target_index = k - 1.
+
     Args:
         full_text: Full string that was tokenized (prompt + ' ' + solution).
         solution_start_char: Character index in full_text where solution starts.
@@ -266,14 +274,18 @@ def get_result_token_mask(
         full_end = solution_start_char + sol_end
         if full_end <= 0:
             continue
-        prefix = full_text[:full_end]
-        ids = tokenizer.encode(prefix, add_special_tokens=True)
-        # Token index (0-based) of the token containing the end of the result
-        token_index = len(ids) - 1
-        # Target position that predicts this token
-        target_index = token_index - 1
-        if 0 <= target_index < target_length:
-            mask[target_index] = 1
+        # Token range for this result span: ids for full_text[:full_start] end at index
+        # start_token; ids for full_text[:full_end] end at index end_token (inclusive last
+        # token of result). So result tokens are at indices [start_token, end_token].
+        ids_before_span = tokenizer.encode(full_text[:full_start], add_special_tokens=True)
+        ids_through_span = tokenizer.encode(full_text[:full_end], add_special_tokens=True)
+        start_token = len(ids_before_span)
+        end_token = len(ids_through_span) - 1
+        # Positions that predict result tokens: logits[k-1] predicts token k
+        for token_index in range(start_token, end_token + 1):
+            target_index = token_index - 1
+            if 0 <= target_index < target_length:
+                mask[target_index] = 1
     return mask
 
 

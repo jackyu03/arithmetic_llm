@@ -300,6 +300,112 @@ class ArithmeticDataset(Dataset):
         return out
 
 
+class DPOPreferenceDataset(Dataset):
+    """Dataset of (prompt, chosen, rejected) for DPO. Uses same instruction JSONL; rejected = make_wrong_solution."""
+
+    def __init__(
+        self,
+        corpus_path: str,
+        tokenizer: Union[ArithmeticBPETokenizer, ArithmeticDigitTokenizer],
+        max_length: int = 512,
+        allow_drop_subtree: bool = True,
+    ):
+        self.tokenizer = tokenizer
+        self.max_length = max_length
+        self.allow_drop_subtree = allow_drop_subtree
+        self.prompts: List[str] = []
+        self.solutions: List[str] = []
+        self.answers: List[int] = []
+        self._load_corpus(corpus_path)
+
+    def _load_corpus(self, corpus_path: str) -> None:
+        with open(corpus_path, "r", encoding="utf-8", errors="ignore") as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    entry = json.loads(line)
+                    prompt = entry["problem"] + " <think>"
+                    raw_solution = entry["solution"].strip()
+                    ans = entry.get("answer", "ERROR")
+                    if ans == "ERROR":
+                        continue
+                    self.prompts.append(prompt)
+                    self.solutions.append(raw_solution)
+                    self.answers.append(int(ans))
+                except (json.JSONDecodeError, KeyError, TypeError, ValueError):
+                    continue
+
+    def __len__(self) -> int:
+        return len(self.prompts)
+
+    def __getitem__(self, idx: int) -> dict:
+        prompt = self.prompts[idx]
+        raw_solution = self.solutions[idx]
+        answer = self.answers[idx]
+        solution_stripped = raw_solution[len("<think>"):].lstrip() if raw_solution.strip().startswith("<think>") else raw_solution
+        wrong_solution = make_wrong_solution(
+            raw_solution, answer, seed=idx, allow_drop_subtree=self.allow_drop_subtree
+        )
+        wrong_stripped = wrong_solution[len("<think>"):].lstrip() if wrong_solution.strip().startswith("<think>") else wrong_solution
+        full_chosen = prompt + " " + solution_stripped
+        full_rejected = prompt + " " + wrong_stripped
+        chosen_ids = self.tokenizer.encode(full_chosen, add_special_tokens=True)
+        rejected_ids = self.tokenizer.encode(full_rejected, add_special_tokens=True)
+        prompt_only_ids = self.tokenizer.encode(prompt, add_special_tokens=True)
+        prompt_length = len(prompt_only_ids)
+
+        if len(chosen_ids) > self.max_length:
+            chosen_ids = chosen_ids[: self.max_length]
+        if len(rejected_ids) > self.max_length:
+            rejected_ids = rejected_ids[: self.max_length]
+        if prompt_length > self.max_length:
+            prompt_length = self.max_length
+
+        return {
+            "chosen_input_ids": chosen_ids,
+            "chosen_length": len(chosen_ids),
+            "chosen_attention_mask": [1] * len(chosen_ids),
+            "rejected_input_ids": rejected_ids,
+            "rejected_length": len(rejected_ids),
+            "rejected_attention_mask": [1] * len(rejected_ids),
+            "prompt_length": prompt_length,
+        }
+
+
+def collate_dpo_fn(
+    batch: List[dict],
+    pad_token_id: int = 0,
+) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+    """Collate for DPO: pad chosen and rejected to batch max lengths. Returns (chosen_ids, chosen_mask, rejected_ids, rejected_mask, prompt_lengths)."""
+    max_chosen = max(item["chosen_length"] for item in batch)
+    max_rejected = max(item["rejected_length"] for item in batch)
+    chosen_ids = []
+    chosen_masks = []
+    rejected_ids = []
+    rejected_masks = []
+    prompt_lengths = []
+    for item in batch:
+        cl, rl = item["chosen_length"], item["rejected_length"]
+        chosen_ids.append(
+            item["chosen_input_ids"] + [pad_token_id] * (max_chosen - cl)
+        )
+        chosen_masks.append(item["chosen_attention_mask"] + [0] * (max_chosen - cl))
+        rejected_ids.append(
+            item["rejected_input_ids"] + [pad_token_id] * (max_rejected - rl)
+        )
+        rejected_masks.append(item["rejected_attention_mask"] + [0] * (max_rejected - rl))
+        prompt_lengths.append(item["prompt_length"])
+    return (
+        torch.tensor(chosen_ids, dtype=torch.long),
+        torch.tensor(chosen_masks, dtype=torch.long),
+        torch.tensor(rejected_ids, dtype=torch.long),
+        torch.tensor(rejected_masks, dtype=torch.long),
+        torch.tensor(prompt_lengths, dtype=torch.long),
+    )
+
+
 def collate_fn(
     batch: List[dict],
     pad_token_id: int = 0,

@@ -76,6 +76,12 @@ python scripts/train/contrastive_sweep.py --instruction-corpus-path data/instruc
 
 # Custom grid and skip baseline
 python scripts/train/contrastive_sweep.py --instruction-corpus-path path/to/corpus.jsonl --tokenizer-path path/to/tokenizer --foundational-checkpoint path/to/foundational.pt --contrastive-weights 0.2 0.4 --contrastive-temperatures 0.05 0.15 --skip-baseline
+
+
+
+
+
+
+python scripts/train/contrastive_depth_sweep.py --instruction-baseline-path models/instruction_baseline/best_model.pt --contrastive-path models/instruction_contrastive/best_model.pt --tokenizer-path data/tokenizer_digit --num-samples 200 --output-dir contrastive_depth_sweep_results
+
 ```
-
-
