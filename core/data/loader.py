@@ -373,6 +373,26 @@ class DPOPreferenceDataset(Dataset):
             "prompt_length": prompt_length,
         }
 
+    def get_example_texts(self, idx: int) -> Tuple[str, str, str]:
+        """Return (prompt, chosen_solution_text, rejected_solution_text) for the given index."""
+        prompt = self.prompts[idx]
+        raw_solution = self.solutions[idx]
+        answer = self.answers[idx]
+        wrong_solution = make_wrong_solution(
+            raw_solution, answer, seed=idx, allow_drop_subtree=self.allow_drop_subtree
+        )
+        solution_stripped = (
+            raw_solution[len("<think>"):].lstrip()
+            if raw_solution.strip().startswith("<think>")
+            else raw_solution
+        )
+        wrong_stripped = (
+            wrong_solution[len("<think>"):].lstrip()
+            if wrong_solution.strip().startswith("<think>")
+            else wrong_solution
+        )
+        return (prompt, solution_stripped, wrong_stripped)
+
 
 def collate_dpo_fn(
     batch: List[dict],

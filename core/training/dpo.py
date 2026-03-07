@@ -9,6 +9,12 @@ import torch
 import torch.nn.functional as F
 from typing import Optional, Tuple
 
+try:
+    from tqdm import tqdm
+except ImportError:
+    def tqdm(iterable, **kwargs):
+        return iterable
+
 
 def _completion_log_probs(
     logits: torch.Tensor,
@@ -136,7 +142,8 @@ def train_dpo_epoch(
     policy_model.train()
     total_loss = 0.0
     n_batches = 0
-    for batch in train_dataloader:
+    pbar = tqdm(train_dataloader, desc="DPO", leave=True, unit="batch")
+    for batch in pbar:
         (chosen_ids, chosen_mask, rejected_ids, rejected_mask, prompt_lengths) = batch
         loss = run_dpo_step(
             policy_model=policy_model,
@@ -152,4 +159,5 @@ def train_dpo_epoch(
         )
         total_loss += loss
         n_batches += 1
+        pbar.set_postfix(loss=f"{loss:.4f}", avg=f"{total_loss / n_batches:.4f}")
     return total_loss / max(1, n_batches)

@@ -45,7 +45,10 @@ def main() -> None:
                         help="Allow drop-subtree in wrong solutions (default: True)")
     parser.add_argument("--no-allow-drop-subtree", action="store_false", dest="allow_drop_subtree")
     parser.add_argument("--device", type=str, default="auto")
-    parser.add_argument("--num-workers", type=int, default=0)
+    parser.add_argument("--num-workers", type=int, default=4,
+                        help="DataLoader workers (default: 4; use 0 on Windows if spawn issues)")
+    parser.add_argument("--wrong-examples", type=int, default=20,
+                        help="Number of make_wrong_solution examples to save to wrong_examples.txt (default: 20)")
     parser.add_argument("--seed", type=int, default=42)
     args = parser.parse_args()
 
@@ -109,6 +112,25 @@ def main() -> None:
     )
     if len(dpo_dataset) == 0:
         raise ValueError("DPO dataset is empty; check instruction corpus path and format")
+
+    # Save wrong-solution examples to txt for inspection
+    if args.wrong_examples > 0:
+        n_save = min(args.wrong_examples, len(dpo_dataset))
+        wrong_path = os.path.join(run_dir, "wrong_examples.txt")
+        with open(wrong_path, "w", encoding="utf-8") as f:
+            f.write("# DPO wrong (rejected) examples: prompt | chosen (correct) | rejected (make_wrong_solution)\n")
+            f.write("# " + "=" * 80 + "\n\n")
+            for i in range(n_save):
+                prompt, chosen_text, rejected_text = dpo_dataset.get_example_texts(i)
+                f.write(f"--- Example {i + 1} ---\n")
+                f.write("PROMPT:\n")
+                f.write(prompt + "\n\n")
+                f.write("CHOSEN (correct):\n")
+                f.write(chosen_text + "\n\n")
+                f.write("REJECTED (wrong):\n")
+                f.write(rejected_text + "\n\n")
+        print(f"Saved {n_save} wrong examples to {wrong_path}")
+
     train_loader = torch.utils.data.DataLoader(
         dpo_dataset,
         batch_size=args.batch_size,
