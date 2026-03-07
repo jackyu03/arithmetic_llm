@@ -123,7 +123,8 @@ def _replace_number_whole_word_after(text: str, after_start: int, old_val: int, 
 
 def _recompute_step_results_after(text: str, corrupt_idx: int) -> Tuple[str, Optional[int]]:
     """Recompute and replace the result R of every step after index corrupt_idx so that R = A op B.
-    Returns (updated_text, last_step_result). Only one error (at corrupt_idx) then propagates to final.
+    Also replace that old R with new R in the rest of the solution (e.g. in "Expression now" lines)
+    so the recomputed value propagates into the next expression. Returns (updated_text, last_step_result).
     """
     steps_full = list(_STEP_FULL_PATTERN.finditer(text))
     if corrupt_idx + 1 >= len(steps_full):
@@ -140,8 +141,12 @@ def _recompute_step_results_after(text: str, corrupt_idx: int) -> Tuple[str, Opt
             a, b = int(m.group(1)), int(m.group(3))
             op = m.group(2)
             new_R = (a + b) if op == "+" else (a - b)
+            old_R = int(m.group(4))
             last_R = new_R
             out = out[: m.start(4)] + str(new_R) + out[m.end(4) :]
+            # Propagate this step's result into "Expression now" and any later text (same number = same value)
+            after_end = m.start(4) + len(str(new_R))
+            out = _replace_number_whole_word_after(out, after_end, old_R, str(new_R))
         except ValueError:
             pass
     return out, last_R
