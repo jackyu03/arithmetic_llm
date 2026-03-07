@@ -17,9 +17,14 @@ import random
 from typing import Optional, Tuple, List, Any
 
 
-# Step pattern: "Step N: A op B = R"
+# Step pattern: "Step N: A op B = R" (group 2 = result R)
 _STEP_PATTERN = re.compile(
     r"(Step\s+\d+\s*:\s*-?\d+\s*[+-]\s*-?\d+\s*=\s*)(-?\d+)",
+    flags=re.IGNORECASE,
+)
+# Full step: capture A, op, B, R for recomputation (groups 1-4)
+_STEP_FULL_PATTERN = re.compile(
+    r"Step\s+\d+\s*:\s*(-?\d+)\s*([+-])\s*(-?\d+)\s*=\s*(-?\d+)",
     flags=re.IGNORECASE,
 )
 
@@ -111,6 +116,32 @@ def _replace_number_whole_word_after(text: str, after_start: int, old_val: int, 
     return text[:after_start] + rest
 
 
+def _recompute_step_results_after(text: str, corrupt_idx: int) -> Tuple[str, Optional[int]]:
+    """Recompute and replace the result R of every step after index corrupt_idx so that R = A op B.
+    Returns (updated_text, last_step_result). Only one error (at corrupt_idx) then propagates to final.
+    """
+    steps_full = list(_STEP_FULL_PATTERN.finditer(text))
+    if corrupt_idx + 1 >= len(steps_full):
+        return text, None
+    out = text
+    last_R: Optional[int] = None
+    # Re-find steps each time so positions stay valid after each replacement
+    for i in range(corrupt_idx + 1, len(steps_full)):
+        matches = list(_STEP_FULL_PATTERN.finditer(out))
+        if i >= len(matches):
+            break
+        m = matches[i]
+        try:
+            a, b = int(m.group(1)), int(m.group(3))
+            op = m.group(2)
+            new_R = (a + b) if op == "+" else (a - b)
+            last_R = new_R
+            out = out[: m.start(4)] + str(new_R) + out[m.end(4) :]
+        except ValueError:
+            pass
+    return out, last_R
+
+
 def _drop_one_subtree(expr: str, rng: random.Random) -> Optional[str]:
     """Return expression with one top-level term dropped, or None if not possible.
     
@@ -135,10 +166,11 @@ def make_wrong_solution(
     seed: Optional[int] = None,
     allow_drop_subtree: bool = True,
 ) -> str:
-    """Create a wrong solution: tens-digit wrong in one step then propagate to end, or (low prob) drop subtree.
+    """Create a wrong solution: one step tens-digit wrong, then propagate to final (no second error).
 
-    - Main type (tens-digit + propagate): Pick one step with result >= 10, flip tens digit (e.g. 20->10 or 30),
-      then replace that value everywhere in the rest of the solution so the error is carried through to the end.
+    - Main type: Pick one step with result >= 10, flip tens digit (e.g. 20->10 or 30); replace that number
+      everywhere after; then recompute every later step's "= R" so R = A op B. Final Result = last step result.
+      So only one error, propagated consistently to the end (no extra tens-digit error that could cancel).
     - Type C (small prob, only when allow_drop_subtree): Drop one top-level subtree in an "Expression now" line.
 
     Type A/B (final-only or arbitrary step+final) are removed so negatives match real model errors.
@@ -181,20 +213,22 @@ def make_wrong_solution(
             out = pattern.sub(f"Final Result: {wrong_str}", out, count=1)
         return out
 
-    # Main: tens-digit wrong in one step (result >= 10), then propagate to the end; fallback: delta + propagate
+    # Main: one step tens-digit wrong, then propagate (replace that number everywhere after), then
+    # recompute every later step's "= R" so only one error propagates to final (no second tens-digit error).
     steps = list(_STEP_PATTERN.finditer(out))
-    candidates = []
-    for m in steps:
+    candidates: List[Tuple[int, Any, int, int]] = []
+    for idx, m in enumerate(steps):
         try:
             result_val = int(m.group(2))
             if abs(result_val) >= 10:
                 wrong_val = _tens_digit_wrong_value(result_val, rng)
                 if wrong_val is not None:
-                    candidates.append((m, result_val, wrong_val))
+                    candidates.append((idx, m, result_val, wrong_val))
         except ValueError:
             pass
+    corrupt_idx: Optional[int] = None
     if candidates:
-        match, result_val, wrong_result = rng.choice(candidates)
+        corrupt_idx, match, result_val, wrong_result = rng.choice(candidates)
         wrong_str = str(wrong_result)
         out = out[: match.start(2)] + wrong_str + out[match.end(2) :]
         after_end = match.end(2)
@@ -203,6 +237,7 @@ def make_wrong_solution(
         # No step with tens digit: corrupt one step by delta and propagate
         if steps:
             idx = rng.randrange(len(steps))
+            corrupt_idx = idx
             match = steps[idx]
             try:
                 result_val = int(match.group(2))
@@ -214,7 +249,15 @@ def make_wrong_solution(
                 after_end = match.end(2)
                 out = _replace_number_whole_word_after(out, after_end, result_val, wrong_str)
             except ValueError:
-                pass
+                corrupt_idx = None
+    # Recompute every step after the corrupted one so R = A op B (one error, propagate to final)
+    if corrupt_idx is not None:
+        out, last_R = _recompute_step_results_after(out, corrupt_idx)
+        if last_R is not None:
+            pattern = re.compile(r"Final\s+Result\s*:\s*[+-]?\s*\d+", flags=re.IGNORECASE)
+            if pattern.search(out):
+                out = pattern.sub(f"Final Result: {last_R}", out, count=1)
+            return out
     wrong_answer = correct_answer + delta
     if wrong_answer != correct_answer:
         wrong_str = str(wrong_answer)
