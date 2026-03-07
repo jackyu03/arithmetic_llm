@@ -39,6 +39,11 @@ _EXPR_NOW_PATTERN = re.compile(
     r"(Expression\s+now\s*:\s*)(.+?)(?=\n|$)",
     re.IGNORECASE,
 )
+# "Expression now: N" where N is a single number (so we can set it to last_R after recompute)
+_EXPR_NOW_SINGLE_NUM = re.compile(
+    r"(Expression\s+now\s*:\s*)(-?\d+)(?=\s*\n|\s*$)",
+    re.IGNORECASE,
+)
 
 
 def _top_level_terms(expr: str) -> List[Tuple[str, Optional[str]]]:
@@ -254,6 +259,11 @@ def make_wrong_solution(
     if corrupt_idx is not None:
         out, last_R = _recompute_step_results_after(out, corrupt_idx)
         if last_R is not None:
+            # Set last "Expression now: N" (single number) to last_R so we don't leave a second wrong number
+            expr_single = list(_EXPR_NOW_SINGLE_NUM.finditer(out))
+            if expr_single:
+                last_expr = expr_single[-1]
+                out = out[: last_expr.start(2)] + str(last_R) + out[last_expr.end(2) :]
             pattern = re.compile(r"Final\s+Result\s*:\s*[+-]?\s*\d+", flags=re.IGNORECASE)
             if pattern.search(out):
                 out = pattern.sub(f"Final Result: {last_R}", out, count=1)

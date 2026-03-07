@@ -84,4 +84,10 @@ python scripts/train/contrastive_sweep.py --instruction-corpus-path path/to/corp
 
 python scripts/train/contrastive_depth_sweep.py --instruction-baseline-path models/instruction_baseline/best_model.pt --contrastive-path models/instruction_contrastive/best_model.pt --tokenizer-path data/tokenizer_digit --num-samples 200 --output-dir contrastive_depth_sweep_results
 
+
+
+
+python scripts/train/dpo.py --instruction-checkpoint models/instruction_baseline/best_model.pt --instruction-corpus-path data/instruction_corpus.txt --tokenizer-path data/tokenizer_digit --num-workers 8
+
+python scripts/eval/evaluate.py --model-path models/dpo/dpo_20260308_011937/best_model.pt --tokenizer-path data/tokenizer_digit
 ```
