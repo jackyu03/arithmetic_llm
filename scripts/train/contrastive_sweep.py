@@ -163,14 +163,18 @@ def main() -> None:
                         help="Dataloader workers (default: 0 for sweep reliability)")
 
     # Contrastive sweep grid
-    parser.add_argument("--contrastive-weights", type=float, nargs="+", default=[0.01, 0.03, 0.05],
+    parser.add_argument("--contrastive-weights", type=float, nargs="+", default=[0.01, 0.03, 0.05, 0.07],
                         help="Contrastive loss weights to sweep (default: 0.01, 0.03, 0.05)")
-    parser.add_argument("--contrastive-temperatures", type=float, nargs="+", default=[0.05, 0.1],
+    parser.add_argument("--contrastive-temperatures", type=float, nargs="+", default=[0.03, 0.05, 0.07, 0.1],
                         help="Contrastive temperatures to sweep (default: 0.05, 0.1; higher = gentler)")
     parser.add_argument("--contrastive-warmup-steps", type=int, default=0,
                         help="CE-only steps before adding contrastive loss (0 = no warmup, default: 0)")
     parser.add_argument("--contrastive-warmup-epochs", type=float, default=0,
                         help="If > 0, CE-only epochs before contrastive (overrides warmup-steps; e.g. 3 = first 3 epochs like baseline)")
+    parser.add_argument("--contrastive-warmup-epochs-sweep", type=float, nargs="+", default=None,
+                        help="Sweep over these warmup epochs (e.g. 1 2); overrides single --contrastive-warmup-epochs when set")
+    parser.add_argument("--contrastive-no-prop", action="store_true",
+                        help="Also run contrastive sweep with no-prop (one step/final wrong only, loss at corrupted positions)")
     parser.add_argument("--contrastive-num-epochs", type=int, default=None,
                         help="Epochs for contrastive runs only (default: same as --num-epochs). E.g. 5 = 3 warmup + 2 contrastive when used with --contrastive-warmup-epochs 3")
     parser.add_argument("--contrastive-learning-rate", type=float, default=None,
@@ -228,10 +232,10 @@ def main() -> None:
         contrastive_warmup_steps: int = 0,
         learning_rate_override: Optional[float] = None,
         num_epochs_override: Optional[int] = None,
+        contrastive_no_prop: bool = False,
     ) -> TrainingConfig:
         lr = learning_rate_override if learning_rate_override is not None else args.learning_rate
         num_epochs = num_epochs_override if num_epochs_override is not None else args.num_epochs
-        # Default: result-token (step-level) contrastive; --completion-level-contrastive uses full completion
         use_result_token = not getattr(args, "completion_level_contrastive", False)
         allow_drop_subtree = not getattr(args, "no_drop_subtree", False)
         margin_max = getattr(args, "contrastive_margin_max", None)
@@ -253,6 +257,7 @@ def main() -> None:
             contrastive_warmup_steps=contrastive_warmup_steps,
             use_result_token_contrastive=use_result_token,
             contrastive_allow_drop_subtree=allow_drop_subtree,
+            contrastive_no_prop=contrastive_no_prop,
             contrastive_margin_max=margin_max,
             contrastive_hard_ratio=hard_ratio,
             use_curriculum=False,
@@ -334,111 +339,127 @@ def main() -> None:
                 "training_summary": None,
             })
 
-    # --- Full instruction + contrastive (grid of weight × temperature) ---
-    # Resolve warmup steps for contrastive: --contrastive-warmup-epochs overrides --contrastive-warmup-steps when > 0
-    contrastive_warmup_steps_resolved = args.contrastive_warmup_steps
-    if getattr(args, "contrastive_warmup_epochs", 0) > 0:
-        steps_per_epoch = _steps_per_epoch(
-            args.instruction_corpus_path, args.batch_size
-        )
-        contrastive_warmup_steps_resolved = int(
-            getattr(args, "contrastive_warmup_epochs") * steps_per_epoch
-        )
-        print(f"Contrastive warmup: {getattr(args, 'contrastive_warmup_epochs')} epochs = {contrastive_warmup_steps_resolved} steps (steps_per_epoch={steps_per_epoch})")
+    # --- Full instruction + contrastive (grid: weight × temperature × warmup_epochs × no_prop) ---
+    steps_per_epoch = _steps_per_epoch(args.instruction_corpus_path, args.batch_size)
+    warmup_epochs_list = (
+        args.contrastive_warmup_epochs_sweep
+        if getattr(args, "contrastive_warmup_epochs_sweep", None) is not None
+        else [getattr(args, "contrastive_warmup_epochs", 0)]
+    )
+    no_prop_list = [False, True] if getattr(args, "contrastive_no_prop", False) else [False]
     contrastive_num_epochs = getattr(args, "contrastive_num_epochs", None)
+    if warmup_epochs_list != [0]:
+        print(f"Contrastive warmup epochs sweep: {warmup_epochs_list}  (steps_per_epoch={steps_per_epoch})")
+    if no_prop_list == [False, True]:
+        print("Contrastive no-prop: will run both prop and noprop")
 
-    for cw in args.contrastive_weights:
-        for ct in args.contrastive_temperatures:
-            _set_training_seed(args.train_seed)
-            run_name = f"contrastive_w{cw}_t{ct}"
-            run_dir = os.path.join(base_dir, run_name)
-            print("\n" + "=" * 60)
-            print(f"Training FULL INSTRUCTION + CONTRASTIVE  weight={cw}  temperature={ct}")
-            print("=" * 60)
-            try:
-                config = make_base_config(
-                    use_contrastive=True,
-                    contrastive_weight=cw,
-                    contrastive_temperature=ct,
-                    contrastive_warmup_steps=contrastive_warmup_steps_resolved,
-                    learning_rate_override=args.contrastive_learning_rate,
-                    num_epochs_override=contrastive_num_epochs,
-                )
-                checkpoint_path, train_sec, vram_train_alloc, vram_train_reserved = run_full_instruction_training(
-                    instruction_corpus_path=args.instruction_corpus_path,
-                    tokenizer_path=args.tokenizer_path,
-                    tokenizer_type=args.tokenizer_type,
-                    foundational_checkpoint=args.foundational_checkpoint,
-                    output_dir=run_dir,
-                    training_config=config,
-                    model_config=model_config,
-                )
-                best_model_path = os.path.join(run_dir, "best_model.pt")
-                if not os.path.exists(best_model_path):
-                    best_model_path = checkpoint_path
+    for no_prop in no_prop_list:
+        for warmup_epoch in warmup_epochs_list:
+            contrastive_warmup_steps_resolved = (
+                int(warmup_epoch * steps_per_epoch) if warmup_epoch > 0 else args.contrastive_warmup_steps
+            )
+            for cw in args.contrastive_weights:
+                for ct in args.contrastive_temperatures:
+                    _set_training_seed(args.train_seed)
+                    run_name = f"contrastive_w{cw}_t{ct}"
+                    if warmup_epoch != 0:
+                        run_name += f"_warmup{warmup_epoch}"
+                    if no_prop:
+                        run_name += "_noprop"
+                    run_dir = os.path.join(base_dir, run_name)
+                    print("\n" + "=" * 60)
+                    print(f"Training FULL INSTRUCTION + CONTRASTIVE  weight={cw}  temp={ct}  warmup_epochs={warmup_epoch}  no_prop={no_prop}")
+                    print("=" * 60)
+                    try:
+                        config = make_base_config(
+                            use_contrastive=True,
+                            contrastive_weight=cw,
+                            contrastive_temperature=ct,
+                            contrastive_warmup_steps=contrastive_warmup_steps_resolved,
+                            learning_rate_override=args.contrastive_learning_rate,
+                            num_epochs_override=contrastive_num_epochs,
+                            contrastive_no_prop=no_prop,
+                        )
+                        checkpoint_path, train_sec, vram_train_alloc, vram_train_reserved = run_full_instruction_training(
+                            instruction_corpus_path=args.instruction_corpus_path,
+                            tokenizer_path=args.tokenizer_path,
+                            tokenizer_type=args.tokenizer_type,
+                            foundational_checkpoint=args.foundational_checkpoint,
+                            output_dir=run_dir,
+                            training_config=config,
+                            model_config=model_config,
+                        )
+                        best_model_path = os.path.join(run_dir, "best_model.pt")
+                        if not os.path.exists(best_model_path):
+                            best_model_path = checkpoint_path
 
-                summary = load_training_summary(run_dir)
-                rec = {
-                    "name": run_name,
-                    "contrastive": True,
-                    "contrastive_weight": cw,
-                    "contrastive_temperature": ct,
-                    "model_path": best_model_path,
-                    "training_summary": summary,
-                    "efficiency": {
-                        "training_time_sec": train_sec,
-                        "eval_time_sec": None,
-                        "vram_train_allocated_mb": vram_train_alloc,
-                        "vram_train_reserved_mb": vram_train_reserved,
-                        "vram_eval_allocated_mb": None,
-                        "vram_eval_reserved_mb": None,
-                    },
-                    "metrics": None,
-                }
+                        summary = load_training_summary(run_dir)
+                        rec = {
+                            "name": run_name,
+                            "contrastive": True,
+                            "contrastive_weight": cw,
+                            "contrastive_temperature": ct,
+                            "contrastive_warmup_epochs": warmup_epoch,
+                            "contrastive_no_prop": no_prop,
+                            "model_path": best_model_path,
+                            "training_summary": summary,
+                            "efficiency": {
+                                "training_time_sec": train_sec,
+                                "eval_time_sec": None,
+                                "vram_train_allocated_mb": vram_train_alloc,
+                                "vram_train_reserved_mb": vram_train_reserved,
+                                "vram_eval_allocated_mb": None,
+                                "vram_eval_reserved_mb": None,
+                            },
+                            "metrics": None,
+                        }
 
-                if args.eval:
-                    metrics, eval_sec, vram_eval_alloc, vram_eval_reserved = evaluate_model(
-                        model_path=best_model_path,
-                        tokenizer_path=args.tokenizer_path,
-                        tokenizer_type=args.tokenizer_type,
-                        device=device,
-                        base_checkpoint_path=None,
-                        num_samples=args.num_eval_samples,
-                        min_depth=1,
-                        max_depth=5,
-                        num_range=num_range,
-                        max_gen_length=args.max_gen_length,
-                        seed=args.eval_seed,
-                    )
-                    rec["metrics"] = metrics
-                    rec["efficiency"]["eval_time_sec"] = eval_sec
-                    rec["efficiency"]["vram_eval_allocated_mb"] = vram_eval_alloc
-                    rec["efficiency"]["vram_eval_reserved_mb"] = vram_eval_reserved
-                    vram_str = f"  eval VRAM: {vram_eval_alloc}/{vram_eval_reserved} MB" if vram_eval_alloc else ""
-                    print(f"  w={cw} t={ct}  accuracy: {metrics['exact_match_accuracy']:.2f}%  train: {train_sec:.0f}s  eval: {eval_sec:.1f}s{vram_str}")
-                else:
-                    best_val = summary.get("best_val_loss") if summary else None
-                    print(f"  w={cw} t={ct}  best_val_loss: {best_val}  train: {train_sec:.0f}s")
-                results.append(rec)
-            except Exception as e:
-                print(f"  {run_name} failed: {e}")
-                results.append({
-                    "name": run_name,
-                    "contrastive": True,
-                    "contrastive_weight": cw,
-                    "contrastive_temperature": ct,
-                    "error": str(e),
-                    "metrics": None,
-                    "training_summary": None,
-                })
+                        if args.eval:
+                            metrics, eval_sec, vram_eval_alloc, vram_eval_reserved = evaluate_model(
+                                model_path=best_model_path,
+                                tokenizer_path=args.tokenizer_path,
+                                tokenizer_type=args.tokenizer_type,
+                                device=device,
+                                base_checkpoint_path=None,
+                                num_samples=args.num_eval_samples,
+                                min_depth=1,
+                                max_depth=5,
+                                num_range=num_range,
+                                max_gen_length=args.max_gen_length,
+                                seed=args.eval_seed,
+                            )
+                            rec["metrics"] = metrics
+                            rec["efficiency"]["eval_time_sec"] = eval_sec
+                            rec["efficiency"]["vram_eval_allocated_mb"] = vram_eval_alloc
+                            rec["efficiency"]["vram_eval_reserved_mb"] = vram_eval_reserved
+                            vram_str = f"  eval VRAM: {vram_eval_alloc}/{vram_eval_reserved} MB" if vram_eval_alloc else ""
+                            print(f"  {run_name}  accuracy: {metrics['exact_match_accuracy']:.2f}%  train: {train_sec:.0f}s  eval: {eval_sec:.1f}s{vram_str}")
+                        else:
+                            best_val = summary.get("best_val_loss") if summary else None
+                            print(f"  {run_name}  best_val_loss: {best_val}  train: {train_sec:.0f}s")
+                        results.append(rec)
+                    except Exception as e:
+                        print(f"  {run_name} failed: {e}")
+                        results.append({
+                            "name": run_name,
+                            "contrastive": True,
+                            "contrastive_weight": cw,
+                            "contrastive_temperature": ct,
+                            "contrastive_warmup_epochs": warmup_epoch,
+                            "contrastive_no_prop": no_prop,
+                            "error": str(e),
+                            "metrics": None,
+                            "training_summary": None,
+                        })
 
     # --- Comparison table: training metrics ---
     print("\n" + "=" * 60)
     print("COMPARISON: Training (best_val_loss, final_train_loss)")
     print("=" * 60)
-    row_len = 80
+    row_len = 95
+    name_w = 40
     headers = ["Config", "contrastive", "weight", "temp", "best_val_loss", "final_train_loss"]
-    print(f"\n{headers[0]:<28} {headers[1]:>10} {headers[2]:>8} {headers[3]:>8} {headers[4]:>14} {headers[5]:>16}")
+    print(f"\n{headers[0]:<{name_w}} {headers[1]:>10} {headers[2]:>8} {headers[3]:>8} {headers[4]:>14} {headers[5]:>16}")
     print("-" * row_len)
 
     for rec in results:
@@ -449,14 +470,14 @@ def main() -> None:
         w_str = f"{w}" if w is not None else "—"
         t_str = f"{t}" if t is not None else "—"
         if rec.get("error"):
-            print(f"{name:<28} {str(c):>10} {w_str:>8} {t_str:>8} {'FAIL':>14} {rec['error'][:20]:>16}")
+            print(f"{name:<{name_w}} {str(c):>10} {w_str:>8} {t_str:>8} {'FAIL':>14} {rec['error'][:20]:>16}")
             continue
         summary = rec.get("training_summary") or {}
         best_val = summary.get("best_val_loss")
         final_train = summary.get("final_train_loss")
         best_str = f"{best_val:.4f}" if best_val is not None else "—"
         train_str = f"{final_train:.4f}" if final_train is not None else "—"
-        print(f"{name:<28} {str(c):>10} {w_str:>8} {t_str:>8} {best_str:>14} {train_str:>16}")
+        print(f"{name:<{name_w}} {str(c):>10} {w_str:>8} {t_str:>8} {best_str:>14} {train_str:>16}")
     print("-" * row_len)
 
     # --- Comparison table: evaluation (if --eval) ---
@@ -465,7 +486,7 @@ def main() -> None:
         print("COMPARISON: Evaluation (Exact %, Parse %, Expression-now consistent %)")
         print("=" * 60)
         headers = ["Config", "Exact %", "Parse %", "Expr-now %", "N"]
-        print(f"\n{headers[0]:<28} {headers[1]:>8} {headers[2]:>8} {headers[3]:>10} {headers[4]:>6}")
+        print(f"\n{headers[0]:<{name_w}} {headers[1]:>8} {headers[2]:>8} {headers[3]:>10} {headers[4]:>6}")
         print("-" * row_len)
         for rec in results:
             name = rec["name"]
@@ -487,13 +508,13 @@ def main() -> None:
     print("COMPARISON: Efficiency (time, VRAM)")
     print("=" * 60)
     eff_headers = ["Config", "Train(s)", "Eval(s)", "TrAlloc", "TrRes", "EvAlloc", "EvRes"]
-    print(f"\n{eff_headers[0]:<28} {eff_headers[1]:>8} {eff_headers[2]:>8} {eff_headers[3]:>8} {eff_headers[4]:>8} {eff_headers[5]:>8} {eff_headers[6]:>8}")
-    print("-" * 90)
+    print(f"\n{eff_headers[0]:<{name_w}} {eff_headers[1]:>8} {eff_headers[2]:>8} {eff_headers[3]:>8} {eff_headers[4]:>8} {eff_headers[5]:>8} {eff_headers[6]:>8}")
+    print("-" * 95)
     for rec in results:
         name = rec["name"]
         eff = rec.get("efficiency")
         if eff is None:
-            print(f"{name:<28} {'—':>8} {'—':>8} {'—':>8} {'—':>8} {'—':>8} {'—':>8}")
+            print(f"{name:<{name_w}} {'—':>8} {'—':>8} {'—':>8} {'—':>8} {'—':>8} {'—':>8}")
             continue
         train_s = eff.get("training_time_sec")
         eval_s = eff.get("eval_time_sec")
@@ -507,8 +528,8 @@ def main() -> None:
         tr_res_s = f"{tr_res:.0f}" if tr_res is not None else "—"
         ev_alloc_s = f"{ev_alloc:.0f}" if ev_alloc is not None else "—"
         ev_res_s = f"{ev_res:.0f}" if ev_res is not None else "—"
-        print(f"{name:<28} {train_str:>8} {eval_str:>8} {tr_alloc_s:>8} {tr_res_s:>8} {ev_alloc_s:>8} {ev_res_s:>8}")
-    print("-" * 90)
+        print(f"{name:<{name_w}} {train_str:>8} {eval_str:>8} {tr_alloc_s:>8} {tr_res_s:>8} {ev_alloc_s:>8} {ev_res_s:>8}")
+    print("-" * 95)
     print("  (VRAM in MB: Tr = training, Ev = evaluation; — = N/A e.g. CPU)")
 
     # --- Save JSON (include explicit eval comparison: exact_match, parse, expression_now_consistent) ---
@@ -518,6 +539,8 @@ def main() -> None:
             "contrastive": r.get("contrastive"),
             "contrastive_weight": r.get("contrastive_weight"),
             "contrastive_temperature": r.get("contrastive_temperature"),
+            "contrastive_warmup_epochs": r.get("contrastive_warmup_epochs"),
+            "contrastive_no_prop": r.get("contrastive_no_prop"),
             "model_path": r.get("model_path"),
             "error": r.get("error"),
             "training_summary": r.get("training_summary"),

@@ -75,7 +75,7 @@ python scripts/train/lora_sweep.py --instruction-corpus-path data/instruction_co
 python scripts/train/contrastive_sweep.py --instruction-corpus-path data/instruction_corpus.txt --tokenizer-path data/tokenizer_digit --foundational-checkpoint models/foundational/best_model.pt --output-dir contrastive_sweep_results
 
 # With evaluation after each training run
-python scripts/train/contrastive_sweep.py --instruction-corpus-path data/instruction_corpus.txt --tokenizer-path data/tokenizer_digit --foundational-checkpoint models/foundational/best_model.pt --eval --num-eval-samples 500 --contrastive-warmup-epochs 2
+python scripts/train/contrastive_sweep.py --instruction-corpus-path data/instruction_corpus.txt --tokenizer-path data/tokenizer_digit --foundational-checkpoint models/foundational/best_model.pt --eval --num-eval-samples 500 --contrastive-warmup-epochs 2 --contrastive-warmup-epochs-sweep 1 2 --contrastive-no-prop
 
 # Custom grid and skip baseline
 python scripts/train/contrastive_sweep.py --instruction-corpus-path path/to/corpus.jsonl --tokenizer-path path/to/tokenizer --foundational-checkpoint path/to/foundational.pt --contrastive-weights 0.2 0.4 --contrastive-temperatures 0.05 0.15 --skip-baseline
