@@ -299,6 +299,30 @@ class ArithmeticDataset(Dataset):
             )
         return out
 
+    def get_contrastive_example_texts(self, idx: int) -> Tuple[str, str, str]:
+        """Return (prompt, correct_solution_text, wrong_solution_text) for contrastive wrong-examples dump.
+        Only valid when use_contrastive and mode == 'instruction'; otherwise raises or returns empty.
+        """
+        if not self.use_contrastive or idx >= len(self.prompts):
+            return ("", "", "")
+        prompt = self.prompts[idx]
+        raw_solution = self.solutions[idx]
+        answer = self.answers[idx]
+        wrong_solution = make_wrong_solution(
+            raw_solution, answer, seed=idx, allow_drop_subtree=self.contrastive_allow_drop_subtree
+        )
+        solution_stripped = (
+            raw_solution[len("<think>"):].lstrip()
+            if raw_solution.strip().startswith("<think>")
+            else raw_solution
+        )
+        wrong_stripped = (
+            wrong_solution[len("<think>"):].lstrip()
+            if wrong_solution.strip().startswith("<think>")
+            else wrong_solution
+        )
+        return (prompt, solution_stripped, wrong_stripped)
+
 
 class DPOPreferenceDataset(Dataset):
     """Dataset of (prompt, chosen, rejected) for DPO. Uses same instruction JSONL; rejected = make_wrong_solution."""
@@ -544,9 +568,11 @@ def create_dataloaders(
     curriculum_steps: int = 10000,
     use_contrastive: bool = False,
     contrastive_allow_drop_subtree: bool = True,
+    save_wrong_examples_path: Optional[str] = None,
+    wrong_examples_count: int = 20,
 ) -> Tuple[DataLoader, DataLoader, Optional[CurriculumSampler]]:
     """Create train and validation dataloaders.
-    
+
     Args:
         corpus_path: Path to corpus file (text for foundational, JSONL for instruction)
         tokenizer: Trained tokenizer instance
@@ -560,6 +586,8 @@ def create_dataloaders(
         curriculum_steps: Total steps over which curriculum anneals to uniform random.
         use_contrastive: If True and batch has wrong_*, return wrong tensors too
         contrastive_allow_drop_subtree: If False, wrong solutions only use wrong step/final (no Type C)
+        save_wrong_examples_path: If set and use_contrastive, save make_wrong_solution examples to this txt path
+        wrong_examples_count: Number of wrong examples to save when save_wrong_examples_path is set (default 20)
 
     Returns:
         Tuple of (train_dataloader, val_dataloader, train_sampler)
@@ -573,7 +601,26 @@ def create_dataloaders(
         use_contrastive=use_contrastive,
         contrastive_allow_drop_subtree=contrastive_allow_drop_subtree,
     )
-    
+
+    # Save contrastive wrong examples to txt when requested
+    if use_contrastive and save_wrong_examples_path and wrong_examples_count > 0:
+        n_save = min(wrong_examples_count, len(full_dataset))
+        with open(save_wrong_examples_path, "w", encoding="utf-8") as f:
+            f.write("# Contrastive wrong (negative) examples: prompt | correct | wrong (make_wrong_solution)\n")
+            f.write("# " + "=" * 80 + "\n\n")
+            for i in range(n_save):
+                prompt, chosen_text, rejected_text = full_dataset.get_contrastive_example_texts(i)
+                if not prompt and not chosen_text and not rejected_text:
+                    continue
+                f.write(f"--- Example {i + 1} ---\n")
+                f.write("PROMPT:\n")
+                f.write(prompt + "\n\n")
+                f.write("CORRECT:\n")
+                f.write(chosen_text + "\n\n")
+                f.write("WRONG (rejected):\n")
+                f.write(rejected_text + "\n\n")
+        print(f"Saved {n_save} contrastive wrong examples to {save_wrong_examples_path}")
+
     # Split into train and validation
     # Ensure at least 1 sample in each split if dataset is large enough
     dataset_size = len(full_dataset)

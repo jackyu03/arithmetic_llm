@@ -109,6 +109,8 @@ def train_instruction_model(
     # Create dataloaders
     use_contrastive = getattr(config, "use_contrastive", False)
     print("Creating dataloaders...")
+    wrong_examples_path = os.path.join(output_dir, "wrong_examples.txt") if use_contrastive else None
+    wrong_examples_count = getattr(config, "wrong_examples_count", 20)
     train_dataloader, val_dataloader, train_sampler = create_dataloaders(
         corpus_path=instruction_corpus_path,
         tokenizer=tokenizer,
@@ -122,6 +124,8 @@ def train_instruction_model(
         curriculum_steps=getattr(config, 'curriculum_steps', 10000),
         use_contrastive=use_contrastive,
         contrastive_allow_drop_subtree=getattr(config, "contrastive_allow_drop_subtree", True),
+        save_wrong_examples_path=wrong_examples_path,
+        wrong_examples_count=wrong_examples_count,
     )
     print(f"Training batches: {len(train_dataloader)}")
     print(f"Validation batches: {len(val_dataloader)}")
