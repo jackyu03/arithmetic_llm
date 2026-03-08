@@ -124,6 +124,7 @@ def train_instruction_model(
         curriculum_steps=getattr(config, 'curriculum_steps', 10000),
         use_contrastive=use_contrastive,
         contrastive_allow_drop_subtree=getattr(config, "contrastive_allow_drop_subtree", True),
+        contrastive_no_prop=getattr(config, "contrastive_no_prop", False),
         save_wrong_examples_path=wrong_examples_path,
         wrong_examples_count=wrong_examples_count,
     )

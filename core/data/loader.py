@@ -10,6 +10,11 @@ from core.data.tokenizer import (
 )
 from core.eval.evaluator import eval_expression
 from core.training.contrastive import make_wrong_solution, get_result_token_mask
+from core.training.contrastive_no_prop import (
+    make_wrong_solution_no_prop,
+    get_result_token_mask_only_corrupted,
+    get_result_token_mask_correct_at_same_positions,
+)
 
 class CurriculumSampler(Sampler):
     """
@@ -85,9 +90,10 @@ class ArithmeticDataset(Dataset):
         mode: str = "foundational",
         use_contrastive: bool = False,
         contrastive_allow_drop_subtree: bool = True,
+        contrastive_no_prop: bool = False,
     ):
         """Initialize dataset.
-        
+
         Args:
             corpus_path: Path to corpus file (text for foundational, JSONL for instruction)
             tokenizer: Trained tokenizer instance
@@ -95,6 +101,7 @@ class ArithmeticDataset(Dataset):
             mode: Training mode - "foundational" or "instruction"
             use_contrastive: If True (instruction only), __getitem__ returns wrong_* for contrastive learning
             contrastive_allow_drop_subtree: If False, wrong solutions only use wrong step/final (no Type C drop-subtree)
+            contrastive_no_prop: If True (and use_contrastive), use no-prop wrong (one step or final wrong only) and mask only corrupted positions
         """
         self.corpus_path = corpus_path
         self.tokenizer = tokenizer
@@ -102,6 +109,7 @@ class ArithmeticDataset(Dataset):
         self.mode = mode
         self.use_contrastive = use_contrastive and (mode == "instruction")
         self.contrastive_allow_drop_subtree = contrastive_allow_drop_subtree
+        self.contrastive_no_prop = contrastive_no_prop
         self.entries = []
         self.prompt_lengths = []  # Store prompt lengths for instruction mode
         self.complexities = []
@@ -273,44 +281,64 @@ class ArithmeticDataset(Dataset):
             prompt = self.prompts[idx]
             solution = self.solutions[idx]
             answer = self.answers[idx]
-            wrong_solution = make_wrong_solution(
-                solution, answer, seed=idx, allow_drop_subtree=self.contrastive_allow_drop_subtree
-            )
+            full_text = prompt + ' ' + solution
+            solution_start = len(prompt) + 1
+
+            if self.contrastive_no_prop:
+                wrong_solution, corrupted_step, corrupted_final = make_wrong_solution_no_prop(
+                    solution, answer, seed=idx
+                )
+            else:
+                wrong_solution = make_wrong_solution(
+                    solution, answer, seed=idx, allow_drop_subtree=self.contrastive_allow_drop_subtree
+                )
+                corrupted_step = -1
+                corrupted_final = True
+
             full_wrong = prompt + ' ' + wrong_solution
             wrong_ids = self.tokenizer.encode(full_wrong, add_special_tokens=True)
             if len(wrong_ids) > self.max_length:
                 wrong_ids = wrong_ids[:self.max_length]
             wrong_plen = prompt_length  # same as correct (BOS + prompt)
-            # Same convention as correct: labels[i] = token at position i (masked for prompt);
-            # training uses targets = labels[:, 1:], so target at position t is labels[t+1] = ids[t+1]
             wrong_labels = [-100] * wrong_plen + wrong_ids[wrong_plen:]
             out['wrong_input_ids'] = wrong_ids
             out['wrong_attention_mask'] = [1] * len(wrong_ids)
             out['wrong_length'] = len(wrong_ids)
             out['wrong_labels'] = wrong_labels
-            # Result-token masks: 1 only at "Step ... = <result>" and "Final Result: <answer>" positions
-            full_text = prompt + ' ' + solution
-            solution_start = len(prompt) + 1
-            out['result_token_mask_correct'] = get_result_token_mask(
-                full_text, solution_start, len(token_ids) - 1, self.tokenizer
-            )
-            out['result_token_mask_wrong'] = get_result_token_mask(
-                full_wrong, solution_start, len(wrong_ids) - 1, self.tokenizer
-            )
+
+            if self.contrastive_no_prop:
+                out['result_token_mask_correct'] = get_result_token_mask_correct_at_same_positions(
+                    full_text, solution_start, len(token_ids) - 1, self.tokenizer,
+                    corrupted_step, corrupted_final,
+                )
+                out['result_token_mask_wrong'] = get_result_token_mask_only_corrupted(
+                    full_wrong, solution_start, len(wrong_ids) - 1, self.tokenizer,
+                    corrupted_step, corrupted_final,
+                )
+            else:
+                out['result_token_mask_correct'] = get_result_token_mask(
+                    full_text, solution_start, len(token_ids) - 1, self.tokenizer
+                )
+                out['result_token_mask_wrong'] = get_result_token_mask(
+                    full_wrong, solution_start, len(wrong_ids) - 1, self.tokenizer
+                )
         return out
 
     def get_contrastive_example_texts(self, idx: int) -> Tuple[str, str, str]:
         """Return (prompt, correct_solution_text, wrong_solution_text) for contrastive wrong-examples dump.
-        Only valid when use_contrastive and mode == 'instruction'; otherwise raises or returns empty.
+        Only valid when use_contrastive and mode == 'instruction'; otherwise returns empty.
         """
         if not self.use_contrastive or idx >= len(self.prompts):
             return ("", "", "")
         prompt = self.prompts[idx]
         raw_solution = self.solutions[idx]
         answer = self.answers[idx]
-        wrong_solution = make_wrong_solution(
-            raw_solution, answer, seed=idx, allow_drop_subtree=self.contrastive_allow_drop_subtree
-        )
+        if self.contrastive_no_prop:
+            wrong_solution, _, _ = make_wrong_solution_no_prop(raw_solution, answer, seed=idx)
+        else:
+            wrong_solution = make_wrong_solution(
+                raw_solution, answer, seed=idx, allow_drop_subtree=self.contrastive_allow_drop_subtree
+            )
         solution_stripped = (
             raw_solution[len("<think>"):].lstrip()
             if raw_solution.strip().startswith("<think>")
@@ -568,6 +596,7 @@ def create_dataloaders(
     curriculum_steps: int = 10000,
     use_contrastive: bool = False,
     contrastive_allow_drop_subtree: bool = True,
+    contrastive_no_prop: bool = False,
     save_wrong_examples_path: Optional[str] = None,
     wrong_examples_count: int = 20,
 ) -> Tuple[DataLoader, DataLoader, Optional[CurriculumSampler]]:
@@ -586,7 +615,8 @@ def create_dataloaders(
         curriculum_steps: Total steps over which curriculum anneals to uniform random.
         use_contrastive: If True and batch has wrong_*, return wrong tensors too
         contrastive_allow_drop_subtree: If False, wrong solutions only use wrong step/final (no Type C)
-        save_wrong_examples_path: If set and use_contrastive, save make_wrong_solution examples to this txt path
+        contrastive_no_prop: If True (and use_contrastive), no-prop wrong + mask only corrupted positions
+        save_wrong_examples_path: If set and use_contrastive, save wrong examples to this txt path
         wrong_examples_count: Number of wrong examples to save when save_wrong_examples_path is set (default 20)
 
     Returns:
@@ -600,6 +630,7 @@ def create_dataloaders(
         mode=mode,
         use_contrastive=use_contrastive,
         contrastive_allow_drop_subtree=contrastive_allow_drop_subtree,
+        contrastive_no_prop=contrastive_no_prop,
     )
 
     # Save contrastive wrong examples to txt when requested

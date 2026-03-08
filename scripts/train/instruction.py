@@ -151,6 +151,11 @@ def main():
         help="Contrastive: only wrong step/final, no drop-subtree (Type C) negatives"
     )
     parser.add_argument(
+        "--contrastive-no-prop",
+        action="store_true",
+        help="Contrastive: no-prop wrong (one step or final wrong only), loss only at corrupted positions"
+    )
+    parser.add_argument(
         "--contrastive-margin-max",
         type=float,
         default=None,
@@ -197,6 +202,8 @@ def main():
             config.contrastive_warmup_epochs = getattr(args, "contrastive_warmup_epochs", 0) or getattr(config, "contrastive_warmup_epochs", 0)
             if getattr(args, "no_drop_subtree", False):
                 config.contrastive_allow_drop_subtree = False
+            if getattr(args, "contrastive_no_prop", False):
+                config.contrastive_no_prop = True
             if getattr(args, "contrastive_margin_max", None) is not None:
                 config.contrastive_margin_max = args.contrastive_margin_max
             if getattr(args, "contrastive_hard_ratio", 1.0) != 1.0:
@@ -228,6 +235,7 @@ def main():
             contrastive_warmup_steps=args.contrastive_warmup_steps,
             contrastive_warmup_epochs=getattr(args, "contrastive_warmup_epochs", 0),
             contrastive_allow_drop_subtree=not getattr(args, "no_drop_subtree", False),
+            contrastive_no_prop=getattr(args, "contrastive_no_prop", False),
             contrastive_margin_max=getattr(args, "contrastive_margin_max", None),
             contrastive_hard_ratio=getattr(args, "contrastive_hard_ratio", 1.0),
             use_curriculum=args.use_curriculum,
@@ -265,6 +273,7 @@ def main():
         print(f"    contrastive_warmup_steps: {getattr(config, 'contrastive_warmup_steps', 0)}")
         print(f"    contrastive_warmup_epochs: {getattr(config, 'contrastive_warmup_epochs', 0)}")
         print(f"    contrastive_allow_drop_subtree: {getattr(config, 'contrastive_allow_drop_subtree', True)}")
+        print(f"    contrastive_no_prop: {getattr(config, 'contrastive_no_prop', False)}")
         print(f"    contrastive_margin_max: {getattr(config, 'contrastive_margin_max', None)}")
         print(f"    contrastive_hard_ratio: {getattr(config, 'contrastive_hard_ratio', 1.0)}")
     print("=" * 60 + "\n")

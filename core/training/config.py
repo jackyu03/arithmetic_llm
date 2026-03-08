@@ -57,6 +57,7 @@ class TrainingConfig:
     contrastive_warmup_epochs: float = 0.0
     use_result_token_contrastive: bool = True
     contrastive_allow_drop_subtree: bool = True
+    contrastive_no_prop: bool = False  # no-prop wrong + mask only corrupted step/final
     contrastive_margin_max: Optional[float] = None
     contrastive_hard_ratio: float = 1.0
     lora_config: Optional[LoRAConfig] = None
