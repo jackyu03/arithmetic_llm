@@ -273,12 +273,12 @@ def make_wrong_solution(
             if pattern.search(out):
                 out = pattern.sub(f"Final Result: {last_R}", out, count=1)
             return out
-    wrong_answer = correct_answer + delta
-    if wrong_answer != correct_answer:
-        wrong_str = str(wrong_answer)
-        pattern = re.compile(r"Final Result\s*:\s*[+-]?\s*\d+", flags=re.IGNORECASE)
-        if pattern.search(out):
-            out = pattern.sub(f"Final Result: {wrong_str}", out, count=1)
+    # wrong_answer = correct_answer + delta
+    # if wrong_answer != correct_answer:
+    #     wrong_str = str(wrong_answer)
+    #     pattern = re.compile(r"Final Result\s*:\s*[+-]?\s*\d+", flags=re.IGNORECASE)
+    #     if pattern.search(out):
+    #         out = pattern.sub(f"Final Result: {wrong_str}", out, count=1)
     return out
 
 
