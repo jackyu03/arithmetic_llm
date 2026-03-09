@@ -163,9 +163,9 @@ def main() -> None:
                         help="Dataloader workers (default: 0 for sweep reliability)")
 
     # Contrastive sweep grid
-    parser.add_argument("--contrastive-weights", type=float, nargs="+", default=[0.01, 0.03, 0.05, 0.07],
+    parser.add_argument("--contrastive-weights", type=float, nargs="+", default=[0.01, 0.02],
                         help="Contrastive loss weights to sweep (default: 0.01, 0.03, 0.05)")
-    parser.add_argument("--contrastive-temperatures", type=float, nargs="+", default=[0.03, 0.05, 0.07, 0.1],
+    parser.add_argument("--contrastive-temperatures", type=float, nargs="+", default=[0.1, 0.13],
                         help="Contrastive temperatures to sweep (default: 0.05, 0.1; higher = gentler)")
     parser.add_argument("--contrastive-warmup-steps", type=int, default=0,
                         help="CE-only steps before adding contrastive loss (0 = no warmup, default: 0)")
@@ -174,7 +174,7 @@ def main() -> None:
     parser.add_argument("--contrastive-warmup-epochs-sweep", type=float, nargs="+", default=None,
                         help="Sweep over these warmup epochs (e.g. 1 2); overrides single --contrastive-warmup-epochs when set")
     parser.add_argument("--contrastive-no-prop", action="store_true",
-                        help="Also run contrastive sweep with no-prop (one step/final wrong only, loss at corrupted positions)")
+                        help="Run contrastive sweep with no-prop only (one step/final wrong only, loss at corrupted positions). Default runs prop only.")
     parser.add_argument("--contrastive-num-epochs", type=int, default=None,
                         help="Epochs for contrastive runs only (default: same as --num-epochs). E.g. 5 = 3 warmup + 2 contrastive when used with --contrastive-warmup-epochs 3")
     parser.add_argument("--contrastive-learning-rate", type=float, default=None,
@@ -346,12 +346,13 @@ def main() -> None:
         if getattr(args, "contrastive_warmup_epochs_sweep", None) is not None
         else [getattr(args, "contrastive_warmup_epochs", 0)]
     )
-    no_prop_list = [False, True] if getattr(args, "contrastive_no_prop", False) else [False]
+    # --contrastive-no-prop: run noprop only; otherwise run prop only
+    no_prop_list = [True] if getattr(args, "contrastive_no_prop", False) else [False]
     contrastive_num_epochs = getattr(args, "contrastive_num_epochs", None)
     if warmup_epochs_list != [0]:
         print(f"Contrastive warmup epochs sweep: {warmup_epochs_list}  (steps_per_epoch={steps_per_epoch})")
-    if no_prop_list == [False, True]:
-        print("Contrastive no-prop: will run both prop and noprop")
+    if no_prop_list == [True]:
+        print("Contrastive no-prop: running noprop only (loss at corrupted step + final)")
 
     for no_prop in no_prop_list:
         for warmup_epoch in warmup_epochs_list:
