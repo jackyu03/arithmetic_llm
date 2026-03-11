@@ -17,6 +17,7 @@ from core.inference.interactive import InteractiveArithmeticSolver
 
 def get_color_ansi(weight: float) -> str:
     """Map a weight [0, 1] to a thermal ANSI background color."""
+    # Exaggerate small weights for visibility
     w = weight ** 0.3
     
     # Custom color ramp for mind reader:
@@ -63,7 +64,6 @@ class MindReader(InteractiveArithmeticSolver):
 ▐▛▚▞▜▌  █  ▐▛▚▖▐▌▐▌  █ ▐▌ ▐▌▐▌   ▐▌ ▐▌▐▌  █ ▐▌   ▐▌ ▐▌
 ▐▌  ▐▌  █  ▐▌ ▝▜▌▐▌  █ ▐▛▀▚▖▐▛▀▀▘▐▛▀▜▌▐▌  █ ▐▛▀▀▘▐▛▀▚▖
 ▐▌  ▐▌▗▄█▄▖▐▌  ▐▌▐▙▄▄▀ ▐▌ ▐▌▐▙▄▄▖▐▌ ▐▌▐▙▄▄▀ ▐▙▄▄▖▐▌ ▐▌                                       
-
         \n"""
         buffer += "=" * 60 + "\n\n"
         buffer += "Watching model attention in real-time...\n\n"
@@ -154,7 +154,7 @@ class MindReader(InteractiveArithmeticSolver):
                 
                 try:
                     self.solve_with_visualization(expression)
-                    print() # Add spacing before the next prompt
+                    input("\nPress Enter to continue...")
                 except Exception as e:
                     print(f"\nError: {str(e)}")
             except (KeyboardInterrupt, EOFError):

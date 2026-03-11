@@ -246,7 +246,7 @@ class InteractiveArithmeticSolver:
             
             # Add any other content
             output += f"{line}\n"
-            
+        
         # If output is totally empty after filtering, show raw to user
         if not found_reasoning and not found_result:
             output += "\nWarning: Model output may be incomplete or malformed.\n"

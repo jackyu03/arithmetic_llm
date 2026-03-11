@@ -60,14 +60,14 @@ def main():
     parser.add_argument(
         "--batch-size",
         type=int,
-        default=32,
+        default=4,
         help="Batch size (default: 32)"
     )
     
     parser.add_argument(
         "--num-epochs",
         type=int,
-        default=10,
+        default=1,
         help="Number of training epochs (default: 10)"
     )
     
@@ -99,20 +99,25 @@ def main():
         default="auto",
         help="Device for training: 'cuda', 'mps', 'cpu', or 'auto' (default: auto)"
     )
-    
+
     parser.add_argument(
-        "--disable-curriculum",
+        "--use-curriculum",
         action="store_true",
-        help="Disable curriculum learning sampling (anneals from easy to hard by default)"
+        help="Use curriculum learning sampling (anneals from easy to hard)"
     )
     
+    parser.add_argument(
+        "--wandb",
+        action="store_true",
+        help="Enable Weights & Biases logging for training metrics"
+    )
+
     parser.add_argument(
         "--num-workers",
         type=int,
-        default=4,
+        default=8,
         help="Number of dataloader worker threads (default: 4)"
     )
-    
     # Model configuration
     parser.add_argument(
         "--model-config",
@@ -158,7 +163,7 @@ def main():
     parser.add_argument(
         "--max-seq-length",
         type=int,
-        default=512,
+        default=2048,
         help="Maximum sequence length (default: 512)"
     )
     
@@ -168,6 +173,7 @@ def main():
     if args.config:
         print(f"Loading training configuration from: {args.config}")
         config = TrainingConfig.from_json(args.config)
+        config.use_wandb = getattr(config, "use_wandb", False) or args.wandb
     else:
         # Determine device
         if args.device == "auto":
@@ -188,8 +194,9 @@ def main():
             gradient_clip=args.gradient_clip,
             save_every=args.save_every,
             device=device,
-            use_curriculum=not args.disable_curriculum,
-            num_workers=args.num_workers
+            use_wandb=args.wandb,
+            use_curriculum=args.use_curriculum,
+            num_workers=args.num_workers,
         )
     
     # Load or create model configuration
@@ -222,6 +229,7 @@ def main():
     print(f"  Gradient clip: {config.gradient_clip}")
     print(f"  Save every: {config.save_every} steps")
     print(f"  Device: {config.device}")
+    print(f"  Wandb: {getattr(config, 'use_wandb', False)}")
     print("\nModel Configuration:")
     print(f"  d_model: {model_config['d_model']}")
     print(f"  nhead: {model_config['nhead']}")

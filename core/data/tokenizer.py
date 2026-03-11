@@ -26,7 +26,7 @@ class ArithmeticDigitTokenizer:
         
         # Define special tokens for arithmetic reasoning
         self.special_tokens = ['<pad>', '<unk>', '<bos>', '<eos>', '<think>', '</think>']
-        
+
         # Define English scaffolding words that should be treated as single tokens
         # to save context space, while numbers remain char-by-char
         self.scaffolding_tokens = ['Evaluate: ', 'Step ', 'Expression now: ', 'Final Result: ']
@@ -46,7 +46,7 @@ class ArithmeticDigitTokenizer:
         
         # Ensure atomic symbols are always in the vocabulary
         tokens.update(self.atomic_symbols)
-        
+
         # Ensure scaffolding words are atomic tokens
         tokens.update(self.scaffolding_tokens)
         
@@ -104,7 +104,6 @@ class ArithmeticDigitTokenizer:
         
         # Remove special tokens temporarily so they don't get split into characters
         special_token_map = {}
-        
         # We group both special tokens and scaffolding tokens to be protected from char splits
         tokens_to_protect = self.special_tokens + self.scaffolding_tokens
         

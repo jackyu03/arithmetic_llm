@@ -137,7 +137,7 @@ class GRPOTrainer:
                 "num_layers": 6,
                 "dim_feedforward": 1024,
                 "dropout": 0.1,
-                "max_seq_length": 512,
+                "max_seq_length": 2048,
             },
         )
         checkpoint_vocab_size = checkpoint_data.get("tokenizer_vocab_size")

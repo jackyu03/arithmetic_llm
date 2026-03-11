@@ -30,9 +30,7 @@ class ExpressionGenerator:
         # for ANY branch to reach target_depth.
         # Since we are expanding an operation here, one of the two branches MUST 
         # be allowed to reach the target depth.
-        
         op = random.choice(['+', '-'])
-        
         # Decide which branch is the 'deep' branch that will definitely reach target_depth
         deep_branch_is_left = random.choice([True, False])
         

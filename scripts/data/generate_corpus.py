@@ -18,14 +18,14 @@ def main():
         default=None,
         help="Legacy sample count to generate"
     )
-    
+
     parser.add_argument(
         "--target-tokens",
         type=int,
         default=None,
         help="Target total tokens to generate"
     )
-    
+
     parser.add_argument(
         "--min-depth",
         type=int,

@@ -15,7 +15,18 @@ def _normalize_line(text: str) -> str:
     return " ".join(text.replace("\n", " ").split())
 
 
-def _read_jsonl_lines(path: str) -> List[str]:
+def _read_jsonl_lines(
+    path: str,
+    one_sequence_per_sample: bool = True,
+    valid_only: bool = False,
+) -> List[str]:
+    """Read JSONL and return training lines.
+    
+    If one_sequence_per_sample is True (default): each line is "problem + ' ' + solution"
+    so the foundational model learns to continue from "Evaluate: X" with " <think> ... </think> Final Result: N".
+    If False (legacy): problem and solution are separate lines (model never sees problem->solution).
+    If valid_only is True: skip entries where answer is "ERROR" (no invalid expression solutions).
+    """
     lines: List[str] = []
     with open(path, "r") as f:
         for raw in f:
@@ -26,12 +37,18 @@ def _read_jsonl_lines(path: str) -> List[str]:
                 obj = json.loads(raw)
             except json.JSONDecodeError:
                 continue
+            if valid_only and obj.get("answer") == "ERROR":
+                continue
             problem = _normalize_line(str(obj.get("problem", "")))
             solution = _normalize_line(str(obj.get("solution", "")))
-            if problem:
-                lines.append(problem)
-            if solution:
-                lines.append(solution)
+            if one_sequence_per_sample:
+                if problem and solution:
+                    lines.append(problem + " " + solution)
+            else:
+                if problem:
+                    lines.append(problem)
+                if solution:
+                    lines.append(solution)
     return lines
 
 
@@ -59,6 +76,16 @@ def main() -> None:
         help="Path to save shuffled plain-text corpus",
     )
     parser.add_argument("--seed", type=int, default=None)
+    parser.add_argument(
+        "--valid-only",
+        action="store_true",
+        help="Exclude ERROR solutions (only valid problem-solution pairs)",
+    )
+    parser.add_argument(
+        "--legacy-separate-lines",
+        action="store_true",
+        help="Write problem and solution as separate lines (old behavior; not recommended)",
+    )
     args = parser.parse_args()
 
     if args.num_samples is None and args.target_tokens is None:
@@ -91,7 +118,11 @@ def main() -> None:
         )
         generator.generate_corpus()
 
-        lines = _read_jsonl_lines(jsonl_path)
+        lines = _read_jsonl_lines(
+            jsonl_path,
+            one_sequence_per_sample=not args.legacy_separate_lines,
+            valid_only=args.valid_only,
+        )
 
     if args.seed is not None:
         random.seed(args.seed)

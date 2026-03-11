@@ -19,8 +19,14 @@ from core.training.foundational import (
     save_checkpoint,
     load_checkpoint,
     train_epoch,
-    evaluate
+    train_epoch_with_contrastive,
+    evaluate,
 )
+
+try:
+    import wandb
+except ImportError:
+    wandb = None
 
 
 def train_instruction_model(
@@ -51,6 +57,16 @@ def train_instruction_model(
     # Create output directory
     os.makedirs(output_dir, exist_ok=True)
     
+    # Initialize wandb if requested
+    if getattr(config, "use_wandb", False) and wandb is not None:
+        wandb.init(
+            project="arithmetic-llm",
+            name=f"instruction",
+            config=config.to_dict(),
+        )
+        if model_config is not None:
+            wandb.config.update({"model": model_config}, allow_val_change=True)
+    
     print(f"Fine-tuning output directory: {output_dir}")
     
     # Load tokenizer
@@ -74,7 +90,7 @@ def train_instruction_model(
             'num_layers': 6,
             'dim_feedforward': 1024,
             'dropout': 0.1,
-            'max_seq_length': 512
+            'max_seq_length': 2048
         })
     else:
         model_config['vocab_size'] = vocab_size
@@ -88,10 +104,13 @@ def train_instruction_model(
         )
 
     model_config['vocab_size'] = vocab_size
-    max_seq_length = model_config.get('max_seq_length', 512)
+    max_seq_length = model_config.get('max_seq_length', 2048)
 
     # Create dataloaders
+    use_contrastive = getattr(config, "use_contrastive", False)
     print("Creating dataloaders...")
+    wrong_examples_path = os.path.join(output_dir, "wrong_examples.txt") if use_contrastive else None
+    wrong_examples_count = getattr(config, "wrong_examples_count", 20)
     train_dataloader, val_dataloader, train_sampler = create_dataloaders(
         corpus_path=instruction_corpus_path,
         tokenizer=tokenizer,
@@ -99,13 +118,25 @@ def train_instruction_model(
         max_length=max_seq_length,
         train_split=0.9,
         shuffle=True,
-        num_workers=getattr(config, 'num_workers', 4),
+        num_workers=getattr(config, 'num_workers', 8),
         mode="instruction",
-        use_curriculum=getattr(config, 'use_curriculum', True),
-        curriculum_steps=getattr(config, 'curriculum_steps', 10000)
+        use_curriculum=getattr(config, 'use_curriculum', False),
+        curriculum_steps=getattr(config, 'curriculum_steps', 10000),
+        use_contrastive=use_contrastive,
+        contrastive_allow_drop_subtree=getattr(config, "contrastive_allow_drop_subtree", True),
+        contrastive_no_prop=getattr(config, "contrastive_no_prop", False),
+        save_wrong_examples_path=wrong_examples_path,
+        wrong_examples_count=wrong_examples_count,
     )
     print(f"Training batches: {len(train_dataloader)}")
     print(f"Validation batches: {len(val_dataloader)}")
+    if use_contrastive:
+        print("Contrastive learning enabled (correct vs wrong completion)")
+        warmup_epochs = getattr(config, "contrastive_warmup_epochs", 0) or 0
+        if warmup_epochs > 0:
+            steps_per_epoch = len(train_dataloader)
+            config.contrastive_warmup_steps = int(warmup_epochs * steps_per_epoch)
+            print(f"Contrastive warmup: {warmup_epochs} epochs = {config.contrastive_warmup_steps} steps")
     
     model = ArithmeticTransformer(**model_config)
     
@@ -135,7 +166,7 @@ def train_instruction_model(
     
     # Calculate total training steps
     total_steps = len(train_dataloader) * config.num_epochs
-    
+
     # Sync curriculum sampler timescale with the actual total steps
     if train_sampler is not None:
         train_sampler.total_steps = total_steps
@@ -170,19 +201,33 @@ def train_instruction_model(
         print(f"Epoch {epoch + 1}/{config.num_epochs}")
         print(f"{'='*60}")
         
-        # Train for one epoch
-        train_loss, global_step = train_epoch(
-            model=model,
-            train_dataloader=train_dataloader,
-            optimizer=optimizer,
-            scheduler=scheduler,
-            config=config,
-            epoch=epoch + 1,
-            global_step=global_step,
-            output_dir=output_dir,
-            tokenizer_vocab_size=vocab_size,
-            train_sampler=train_sampler
-        )
+        # Train for one epoch (with or without contrastive loss)
+        if use_contrastive:
+            train_loss, global_step = train_epoch_with_contrastive(
+                model=model,
+                train_dataloader=train_dataloader,
+                optimizer=optimizer,
+                scheduler=scheduler,
+                config=config,
+                epoch=epoch + 1,
+                global_step=global_step,
+                output_dir=output_dir,
+                tokenizer_vocab_size=vocab_size,
+                train_sampler=train_sampler
+            )
+        else:
+            train_loss, global_step = train_epoch(
+                model=model,
+                train_dataloader=train_dataloader,
+                optimizer=optimizer,
+                scheduler=scheduler,
+                config=config,
+                epoch=epoch + 1,
+                global_step=global_step,
+                output_dir=output_dir,
+                tokenizer_vocab_size=vocab_size,
+                train_sampler=train_sampler
+            )
         
         # Evaluate on validation set
         print("\nEvaluating on validation set...")
@@ -200,6 +245,21 @@ def train_instruction_model(
             'val_loss': val_loss,
             'learning_rate': scheduler.get_last_lr()[0]
         })
+        
+        # Log epoch metrics to wandb
+        if (
+            getattr(config, "use_wandb", False)
+            and wandb is not None
+            and wandb.run is not None
+        ):
+            wandb.log(
+                {
+                    "epoch/train_loss": train_loss,
+                    "epoch/val_loss": val_loss,
+                    "epoch/learning_rate": scheduler.get_last_lr()[0],
+                },
+                step=global_step,
+            )
         
         # Save best model
         if val_loss < best_val_loss:

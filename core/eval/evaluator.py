@@ -8,8 +8,89 @@ import re
 import os
 import json
 import torch
-from typing import Dict, Optional, List, Tuple, Union
+from typing import Dict, Optional, List, Tuple, Union, Set, Any
 from datetime import datetime
+
+
+def _in_step_suffix(text: str) -> bool:
+    """True if we're inside a step (after 'Step N :' but no '= number' yet)."""
+    if not text or "Step" not in text:
+        return False
+    last_step = text.rfind("Step")
+    suffix = text[last_step:]
+    if re.search(r"=\s*-?\s*\d", suffix):
+        return False
+    return True
+
+
+def _in_unbalanced_expression_suffix(text: str) -> bool:
+    """True if we're in an 'Expression now:' line and parens are unbalanced.
+    
+    Prevents the model from cutting off mid-expression (e.g. '(1+9) + (3+' then
+    newline, dropping '(5-4)) + 1').
+    """
+    # Find last "Expression now" (or "Expression now:") and take the rest
+    expr_now_marker = "Expression now"
+    idx = text.rfind(expr_now_marker)
+    if idx == -1:
+        return False
+    # Skip the marker and optional colon/spaces to get the expression part
+    rest = text[idx + len(expr_now_marker):].lstrip()
+    if rest.startswith(":"):
+        rest = rest[1:].lstrip()
+    if not rest:
+        return True  # Just started "Expression now:", forbid newline until we have something
+    open_paren = rest.count("(") - rest.count(")")
+    return open_paren > 0
+
+
+def _think_followed_by_step1(text: str) -> bool:
+    """True if content after <think> starts with 'Step 1' (no leading junk).
+    Used for adaptive sampling: invalidate and resample when think is not followed by Step 1.
+    """
+    idx = text.find("<think>")
+    if idx == -1:
+        return False
+    after = text[idx + len("<think>"):].lstrip()
+    if not after:
+        return False
+    first_line = after.split("\n")[0].strip()
+    return first_line.startswith("Step 1") or bool(re.match(r"^Step\s+1\s*:", first_line, re.IGNORECASE))
+
+
+def get_forbidden_token_ids_for_constraint(
+    tokenizer: Any,
+    generated: torch.Tensor,
+) -> List[Set[int]]:
+    """Return token IDs to forbid per batch item to avoid breaking step/expression.
+    
+    Forbid newline, 'Step', '</think>' when:
+    - Inside a step (after 'Step N :' but before '= number'), or
+    - Inside 'Expression now: ...' with unbalanced parentheses (so we don't
+      drop subtrees like '(3+(5-4)) + 1' by cutting at '(1+9) + (3+').
+    """
+    batch_size = generated.shape[0]
+    vocab = getattr(tokenizer, "id2token", {})
+    if not vocab:
+        return [set() for _ in range(batch_size)]
+    forbidden_ids: Set[int] = set()
+    for tid, t in vocab.items():
+        t_clean = t.replace("</w>", "").strip()
+        if "\n" in t_clean:
+            forbidden_ids.add(tid)
+        if t_clean.lower() == "step":
+            forbidden_ids.add(tid)
+        if "</think>" in t_clean:
+            forbidden_ids.add(tid)
+    out: List[Set[int]] = []
+    for b in range(batch_size):
+        ids = generated[b].tolist()
+        text = tokenizer.decode(ids, skip_special_tokens=True)
+        if _in_step_suffix(text) or _in_unbalanced_expression_suffix(text):
+            out.append(set(forbidden_ids))
+        else:
+            out.append(set())
+    return out
 
 
 class Node:
@@ -86,6 +167,8 @@ class ArithmeticEvaluator:
         node.value = (left_val + right_val) if node.op == '+' else (left_val - right_val)
         node.evaluated = True
         expr_now = self.render_expression(self.root, is_root=True)
+        step_str = f"{left_val} {node.op} {right_val} = {node.value}"
+        self.steps.append((step_str, expr_now))
         return node.value
 
     def evaluate(self):
@@ -113,6 +196,7 @@ def eval_expression(expression):
             'problem': problem_statement,
             'solution': "\n".join(answers),
             'answer': result
+
         }
     except Exception:
         return {
@@ -250,7 +334,7 @@ class ModelEvaluator:
         
         self.model.to(device)
         self.model.eval()
-    
+
     def evaluate(
         self,
         num_samples: int = 1000,
@@ -259,7 +343,8 @@ class ModelEvaluator:
         num_range: Tuple[int, int] = (1, 20),
         output_dir: Optional[str] = None,
         max_gen_length: int = 256,
-        log_all_questions: bool = False
+        log_all_questions: bool = False,
+        max_sample_attempts: int = 1,
     ) -> Dict[str, float]:
         """Evaluate model on test set.
         
@@ -269,6 +354,7 @@ class ModelEvaluator:
             num_range: Range of numbers to use in expressions
             output_dir: Optional directory to save evaluation results
             max_gen_length: Maximum generation length in tokens (default: 256)
+            max_sample_attempts: If > 1, resample when think not followed by Step 1 (default: 1)
             
         Returns:
             Dictionary with accuracy metrics:
@@ -308,31 +394,51 @@ class ModelEvaluator:
         # Evaluate model on test set using batches
         correct = 0
         parseable = 0
+        expr_now_consistent = 0
+        steps_all_correct = 0
         total_length = 0
         sample_outputs = []
         
         print(f"Evaluating model...")
-        
+
         from tqdm import tqdm
         
         # Process sequentially
+        total_generated_tokens = 0
         for i, (expression, ground_truth, depth) in tqdm(enumerate(zip(test_expressions, test_answers, test_depths)), total=len(test_expressions), desc="Evaluating"):
-            
+
             prompt = f"Evaluate: {expression}\n<think>\n"
             generated_text = self._generate_solution(prompt, max_length=max_gen_length)
+            for attempt in range(1, max_sample_attempts):
+                if _think_followed_by_step1(generated_text):
+                    break
+                generated_text = self._generate_solution(prompt, max_length=max_gen_length)
             
             total_length += len(generated_text.split())
-                
+            # Count tokens for efficiency metrics (exclude prompt)
+            gen_tokens = self.tokenizer.encode(generated_text, add_special_tokens=False)
+            total_generated_tokens += len(gen_tokens)
+
             # Extract final result
             predicted_result = self.extract_final_result(generated_text)
             
             # Check if output is parseable
             if predicted_result is not None:
                 parseable += 1
-                
+            
                 # Check if result is correct
                 if predicted_result == ground_truth:
                     correct += 1
+
+            # Check if reasoning steps (Expression now lines) match ground truth
+            expr_now_ok = self.verify_expression_now_consistent(expression, generated_text)
+            if expr_now_ok:
+                expr_now_consistent += 1
+
+            # Check if each step arithmetic is correct (Step N: A op B = C)
+            steps_ok = self.verify_reasoning_steps(expression, generated_text)
+            if steps_ok:
+                steps_all_correct += 1
             
             # Save sample outputs
             if log_all_questions or i < 10:
@@ -344,7 +450,8 @@ class ModelEvaluator:
                         'predicted': predicted_result,
                         'generated_text': generated_text,
                         'parseable': predicted_result is not None,
-                        'correct': predicted_result == ground_truth if predicted_result is not None else False
+                        'correct': predicted_result == ground_truth if predicted_result is not None else False,
+                        'expression_now_consistent': expr_now_ok,
                     })
         
         # Calculate metrics
@@ -352,10 +459,15 @@ class ModelEvaluator:
         metrics = {
             'exact_match_accuracy': (correct / total * 100) if total > 0 else 0.0,
             'parse_success_rate': (parseable / total * 100) if total > 0 else 0.0,
+            'expression_now_consistent_rate': (expr_now_consistent / total * 100) if total > 0 else 0.0,
+            'steps_all_correct_rate': (steps_all_correct / total * 100) if total > 0 else 0.0,
             'avg_generation_length': (total_length / total) if total > 0 else 0.0,
             'total_samples': total,
             'correct_samples': correct,
-            'parseable_samples': parseable
+            'parseable_samples': parseable,
+            'expression_now_consistent_samples': expr_now_consistent,
+            'steps_all_correct_samples': steps_all_correct,
+            'total_generated_tokens': total_generated_tokens,
         }
         
         # Save results if output directory is provided
@@ -364,12 +476,22 @@ class ModelEvaluator:
         
         return metrics
     
-    def _generate_solution(self, prompt: str, max_length: int = 256) -> str:
+    def _generate_solution(
+        self,
+        prompt: str,
+        max_length: int = 256,
+        top_p: float = 0.9,
+        use_constrained_decoding: bool = False,
+    ) -> str:
         """Generate solution for a given prompt.
         
         Args:
             prompt: Input prompt text
             max_length: Maximum generation length
+            temperature: Sampling temperature (0 = greedy, reduces dropped digits)
+            top_k: Top-k sampling; 0 = disabled
+            top_p: Nucleus sampling threshold
+            use_constrained_decoding: If True, forbid newline/Step/</think> until "= number" in each step
             
         Returns:
             Generated text
@@ -383,19 +505,22 @@ class ModelEvaluator:
         
         input_tensor = torch.tensor([input_ids], dtype=torch.long).to(self.device)
         
-        # Generate
+        forbid_fn = (lambda g: get_forbidden_token_ids_for_constraint(self.tokenizer, g)) if use_constrained_decoding else None
+
         is_digit = hasattr(self.tokenizer, 'scaffolding_tokens')
         temp = 0.1 if is_digit else 0.8
         k = 5 if is_digit else 50
         
+        # Generate (lower temperature reduces "dropping" numbers in steps)
         with torch.no_grad():
             generated_ids = self.model.generate(
                 input_tensor,
                 max_length=max_length,
                 temperature=temp,
                 top_k=k,
-                top_p=0.9,
-                eos_token_id=eos_token_id
+                top_p=top_p,
+                eos_token_id=eos_token_id,
+                forbid_token_ids_fn=forbid_fn,
             )
         
         # Decode (skip special tokens for cleaner output)
@@ -403,12 +528,22 @@ class ModelEvaluator:
         
         return generated_text
     
-    def _generate_batch(self, prompts: List[str], max_length: int = 256) -> List[str]:
+    def _generate_batch(
+        self,
+        prompts: List[str],
+        max_length: int = 256,
+        top_p: float = 0.9,
+        use_constrained_decoding: bool = False,
+    ) -> List[str]:
         """Generate solutions for a batch of prompts.
         
         Args:
             prompts: List of input prompt texts
             max_length: Maximum generation length
+            temperature: Sampling temperature (0 = greedy)
+            top_k: Top-k sampling; 0 = disabled
+            top_p: Nucleus sampling threshold
+            use_constrained_decoding: If True, forbid newline/Step/</think> until "= number" in each step
             
         Returns:
             List of generated texts
@@ -441,20 +576,22 @@ class ModelEvaluator:
         input_tensor = torch.tensor(padded_input_ids, dtype=torch.long).to(self.device)
         attention_mask = torch.tensor(attention_masks, dtype=torch.float).to(self.device)
         
-        # Generate for batch
+        forbid_fn = (lambda g: get_forbidden_token_ids_for_constraint(self.tokenizer, g)) if use_constrained_decoding else None
+        
+        # Generate for batch (lower temperature reduces dropped digits in steps)
         is_digit = hasattr(self.tokenizer, 'scaffolding_tokens')
         temp = 0.1 if is_digit else 0.8
         k = 5 if is_digit else 50
-
         with torch.no_grad():
             generated_ids = self.model.generate(
                 input_tensor,
                 max_length=max_length,
                 temperature=temp,
                 top_k=k,
-                top_p=0.9,
+                top_p=top_p,
                 eos_token_id=eos_token_id,
-                attention_mask=attention_mask
+                attention_mask=attention_mask,
+                forbid_token_ids_fn=forbid_fn,
             )
         
         # Decode all outputs (skip special tokens for cleaner output)
@@ -536,6 +673,60 @@ class ModelEvaluator:
         
         return True
     
+    def verify_reasoning_steps_strict(self, generated_text: str) -> bool:
+        """Strict AST-style verifier: steps are consecutive 1,2,3,... and arithmetic is correct.
+        
+        Use for self-consistency (keep only verified outputs) or as reward signal.
+        """
+        step_pattern = re.compile(
+            r'Step\s+(\d+)\s*:\s*(-?\d+)\s*([+\-])\s*(-?\d+)\s*=\s*(-?\d+)',
+            re.IGNORECASE,
+        )
+        steps = list(step_pattern.finditer(generated_text))
+        if not steps:
+            return False
+        seen = []
+        for m in steps:
+            step_num = int(m.group(1))
+            left, op, right, result = int(m.group(2)), m.group(3), int(m.group(4)), int(m.group(5))
+            expected = left + right if op == '+' else left - right
+            if expected != result:
+                return False
+            seen.append(step_num)
+        # Consecutive step numbers 1, 2, 3, ...
+        if seen != list(range(1, len(seen) + 1)):
+            return False
+        return True
+    
+    def verify_expression_now_consistent(self, expression: str, generated_text: str) -> bool:
+        """Verify each 'Expression now' line matches the correct substitution (no dropped subtrees).
+        
+        Compares model's 'Expression now: ...' lines to ground truth from eval_expression.
+        Returns False if any line is missing or different (e.g. model dropped '(3+(5-4)) + 1').
+        """
+        result = eval_expression(expression)
+        if result.get("answer") == "ERROR":
+            return False
+        solution = result.get("solution", "")
+        
+        def extract_expr_now_lines(text: str) -> List[str]:
+            lines = []
+            for line in text.split("\n"):
+                line = line.strip()
+                if line.lower().startswith("expression now"):
+                    rest = line[line.find(":") + 1:].strip() if ":" in line else ""
+                    lines.append(re.sub(r"\s+", " ", rest).strip())
+            return lines
+        
+        correct_lines = extract_expr_now_lines(solution)
+        model_lines = extract_expr_now_lines(generated_text)
+        if len(model_lines) != len(correct_lines):
+            return False
+        for a, b in zip(model_lines, correct_lines):
+            if a != b:
+                return False
+        return True
+    
     def _save_results(
         self,
         metrics: Dict[str, float],
@@ -587,14 +778,14 @@ class ModelEvaluator:
             for i, sample in enumerate(sample_outputs, 1):
                 f.write(f"\nSample {i}:\n")
                 f.write(f"  Expression: {sample['expression']}\n")
-                f.write(f"  Depth: {sample.get('depth', 'N/A')}\n")
+                f.write(f"Depth: {sample.get('depth', 'N/A')}\n")
                 f.write(f"  Ground Truth: {sample['ground_truth']}\n")
                 f.write(f"  Predicted: {sample['predicted']}\n")
                 f.write(f"  Correct: {sample['correct']}\n")
+                f.write(f"  Expression now consistent: {sample.get('expression_now_consistent', False)}\n")
                 f.write("  Generated Text:\n")
                 for line in sample['generated_text'].split('\n'):
                     f.write(f"    {line}\n")
-        
         if log_all_questions:
             # Generate detailed txt for all questions
             detailed_txt_path = os.path.join(output_dir, f'all_questions_{timestamp}.txt')
@@ -602,7 +793,6 @@ class ModelEvaluator:
                 for sample in sample_outputs:
                     f.write(f"Question Number: {sample.get('question_number', 'N/A')}\n")
                     f.write(f"Question: {sample['expression']}\n")
-                    f.write(f"Depth: {sample.get('depth', 'N/A')}\n")
                     f.write(f"Generated text:\n{sample['generated_text']}\n")
                     f.write(f"Result: {sample['predicted']}\n")
                     f.write(f"Expected result: {sample['ground_truth']}\n")
@@ -627,7 +817,7 @@ class ModelEvaluator:
         print(f"  - Metrics: {metrics_path}")
         print(f"  - Samples: {samples_path}")
         print(f"  - Summary: {summary_path}")
-        
+
         if log_all_questions:
             print(f"  - Detailed Txt: {detailed_txt_path}")
             print(f"  - Detailed CSV: {detailed_csv_path}")

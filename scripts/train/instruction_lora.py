@@ -109,6 +109,18 @@ def main():
         help="Device for training: 'cuda', 'mps', 'cpu', or 'auto' (default: auto)"
     )
 
+    parser.add_argument(
+        "--wandb",
+        action="store_true",
+        help="Enable Weights & Biases logging for training metrics"
+    )
+
+    parser.add_argument(
+        "--use-curriculum",
+        action="store_true",
+        help="Use curriculum learning sampling (anneals from easy to hard)"
+    )
+
     # LoRA configuration
     parser.add_argument(
         "--lora-rank",
@@ -145,18 +157,11 @@ def main():
     )
 
     parser.add_argument(
-        "--disable-curriculum",
-        action="store_true",
-        help="Disable curriculum learning sampling (anneals from easy to hard by default)"
-    )
-
-    parser.add_argument(
         "--num-workers",
         type=int,
         default=4,
         help="Number of dataloader worker threads (default: 4)"
     )
-
     # Model configuration
     parser.add_argument(
         "--model-config",
@@ -170,6 +175,7 @@ def main():
     if args.config:
         print(f"Loading training configuration from: {args.config}")
         config = TrainingConfig.from_json(args.config)
+        config.use_wandb = getattr(config, "use_wandb", False) or args.wandb
     else:
         if args.device == "auto":
             import torch
@@ -189,8 +195,9 @@ def main():
             gradient_clip=args.gradient_clip,
             save_every=args.save_every,
             device=device,
-            use_curriculum=not args.disable_curriculum,
-            num_workers=args.num_workers
+            use_wandb=args.wandb,
+            use_curriculum=args.use_curriculum,
+            num_workers=args.num_workers,
         )
 
     target_modules = [
@@ -231,6 +238,7 @@ def main():
     print(f"  Gradient clip: {config.gradient_clip}")
     print(f"  Save every: {config.save_every} steps")
     print(f"  Device: {config.device}")
+    print(f"  Wandb: {getattr(config, 'use_wandb', False)}")
     print("=" * 60 + "\n")
 
     # Train model

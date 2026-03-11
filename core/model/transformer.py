@@ -8,7 +8,7 @@ import math
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from typing import Optional, Dict, Tuple, Iterator, Any
+from typing import Optional, Dict, Tuple, Iterator, Any, Callable, List, Set
 
 from core.model.lora.config import LoRAConfig
 from core.model.lora.layer import LoRALayer
@@ -60,7 +60,6 @@ class RotaryPositionEmbedding(nn.Module):
         )
 
 
-
 class ArithmeticTransformer(nn.Module):
     """Transformer model for arithmetic reasoning.
     
@@ -104,14 +103,14 @@ class ArithmeticTransformer(nn.Module):
         self.dropout = dropout
         self.max_seq_length = max_seq_length
         
-        # Token embeddings
+        # Token embeddings (position encoding is RoPE applied in attention layers)
         self.token_embedding = nn.Embedding(vocab_size, d_model)
-        
+
         # Rotary Position Embedding
         # The rotary dimension is equal to the head dimension (d_model // nhead)
         self.head_dim = d_model // nhead
         self.rotary_emb = RotaryPositionEmbedding(self.head_dim, max_position_embeddings=max_seq_length)
-        
+
         # Dropout for embeddings
         self.embedding_dropout = nn.Dropout(dropout)
         
@@ -175,7 +174,7 @@ class ArithmeticTransformer(nn.Module):
             attention_mask: Optional padding mask of shape (batch_size, seq_length)
                            where 1 indicates valid tokens and 0 indicates padding
             output_attentions: Whether to return attention weights
-        
+
         Returns:
             If output_attentions is False:
                 Logits of shape (batch_size, seq_length, vocab_size)
@@ -188,7 +187,7 @@ class ArithmeticTransformer(nn.Module):
         # Get token embeddings (No absolute position embeddings added here!)
         hidden_states = self.token_embedding(input_ids)
         hidden_states = self.embedding_dropout(hidden_states)
-        
+
         # Compute Rotary Embeddings for this sequence length
         cos, sin = self.rotary_emb(hidden_states, seq_len=seq_length)
         # Expand cos and sin to match attention shape: [1, 1, seq_length, head_dim]
@@ -214,7 +213,6 @@ class ArithmeticTransformer(nn.Module):
             combined_mask = causal_mask.unsqueeze(0)  # (1, seq_length, seq_length)
         
         all_attentions = () if output_attentions else None
-        
         # Pass through transformer layers
         for layer in self.layers:
             if output_attentions:
@@ -238,9 +236,10 @@ class ArithmeticTransformer(nn.Module):
         
         # Project to vocabulary
         logits = self.output_projection(hidden_states)
-        
+
         if output_attentions:
             return logits, all_attentions
+            
         return logits
 
     def inject_lora(self, config: LoRAConfig) -> None:
@@ -434,6 +433,7 @@ class ArithmeticTransformer(nn.Module):
         top_p: float = 0.9,
         eos_token_id: Optional[int] = None,
         attention_mask: Optional[torch.Tensor] = None,
+        forbid_token_ids_fn: Optional[Callable[[torch.Tensor], List[Set[int]]]] = None,
         output_attentions: bool = False
     ) -> torch.Tensor | Tuple[torch.Tensor, Tuple[torch.Tensor, ...]]:
         """Generate text autoregressively with temperature sampling.
@@ -447,6 +447,8 @@ class ArithmeticTransformer(nn.Module):
             eos_token_id: Optional end-of-sequence token ID to stop generation
             attention_mask: Optional padding mask of shape (batch_size, seq_length)
             output_attentions: Whether to capture and return attention weights from generation
+            forbid_token_ids_fn: Optional; (generated) -> list of sets of token IDs to
+                mask to -inf per batch item (e.g. avoid newline/Step mid-step).
         
         Returns:
             If output_attentions=False, just Generated token IDs.
@@ -462,9 +464,9 @@ class ArithmeticTransformer(nn.Module):
         generated = input_ids.clone()
         if attention_mask is not None:
             attention_mask = attention_mask.to(device)
-            
-        captured_attentions = [] if output_attentions else None
         
+        captured_attentions = [] if output_attentions else None
+
         with torch.no_grad():
             while generated.shape[1] < max_length:
                 # Forward pass
@@ -473,12 +475,13 @@ class ArithmeticTransformer(nn.Module):
                     captured_attentions.append(attentions)
                 else:
                     logits = self.forward(generated, attention_mask=attention_mask, output_attentions=False)
-                
+
                 # Get logits for the last token
                 next_token_logits = logits[:, -1, :]
                 
-                # Apply temperature
-                if temperature != 1.0:
+                # Apply temperature (skip when greedy to avoid div-by-zero)
+                use_greedy = temperature is not None and temperature <= 1e-7
+                if not use_greedy and temperature != 1.0:
                     next_token_logits = next_token_logits / temperature
                 
                 # Apply top-k filtering
@@ -504,9 +507,22 @@ class ArithmeticTransformer(nn.Module):
                     )
                     next_token_logits[indices_to_remove] = float('-inf')
                 
-                # Sample from the filtered distribution
-                probs = F.softmax(next_token_logits, dim=-1)
-                next_token = torch.multinomial(probs, num_samples=1).squeeze(1)
+                # Optional format constraint: forbid tokens that would break step (e.g. newline before "= result")
+                if forbid_token_ids_fn is not None:
+                    forbidden_list = forbid_token_ids_fn(generated)
+                    for b in range(batch_size):
+                        if b < len(forbidden_list) and forbidden_list[b]:
+                            for tid in forbidden_list[b]:
+                                if 0 <= tid < next_token_logits.shape[1]:
+                                    next_token_logits[b, tid] = float("-inf")
+                
+                # Sample or greedy: use argmax when temperature is 0 to avoid
+                # "dropping" digits (e.g. model sampling newline instead of "8")
+                if use_greedy:
+                    next_token = next_token_logits.argmax(dim=-1)
+                else:
+                    probs = F.softmax(next_token_logits, dim=-1)
+                    next_token = torch.multinomial(probs, num_samples=1).squeeze(1)
                 
                 # Handle EOS token
                 if eos_token_id is not None:
@@ -525,7 +541,6 @@ class ArithmeticTransformer(nn.Module):
                 # Stop if all sequences are finished
                 if eos_token_id is not None and finished.all():
                     break
-        
         if output_attentions:
             return generated, tuple(captured_attentions)
         return generated
@@ -579,7 +594,7 @@ class TransformerLayer(nn.Module):
             attention_mask: Optional mask of shape (batch_size, seq_length, seq_length)
             position_embeddings: Tuple of (cos, sin) tensors for RoPE
             output_attentions: Whether to capture and return attention weights
-        
+
         Returns:
             Tuple of (output shape (batch_size, seq_length, d_model), attention_weights)
         """
@@ -649,7 +664,7 @@ class MultiHeadAttention(nn.Module):
             attention_mask: Optional mask of shape (batch_size, seq_length, seq_length)
             position_embeddings: Tuple of (cos, sin) tensors for RoPE
             output_attentions: Whether to capture and return attention weights
-        
+
         Returns:
             Tuple of (Output shape (batch_size, seq_length, d_model), attention_probs)
         """

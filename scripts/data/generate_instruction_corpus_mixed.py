@@ -94,7 +94,6 @@ def main() -> None:
     
     error_tokens = int(args.target_tokens * args.invalid_rate) if args.target_tokens else None
     correct_tokens = int(args.target_tokens * (1 - args.invalid_rate)) if args.target_tokens else None
-
     # Generate to temp files to avoid persisting intermediate corpora
     with tempfile.TemporaryDirectory() as tmpdir:
         error_path = os.path.join(tmpdir, "instruction_corpus_error.txt")

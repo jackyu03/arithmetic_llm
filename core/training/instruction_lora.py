@@ -20,6 +20,11 @@ from core.training.foundational import (
     evaluate,
 )
 
+try:
+    import wandb
+except ImportError:
+    wandb = None
+
 
 def freeze_non_lora_parameters(model: ArithmeticTransformer) -> None:
     """Freeze all parameters except LoRA adapters."""
@@ -80,6 +85,16 @@ def train_instruction_model_lora(
     # Create output directory
     os.makedirs(output_dir, exist_ok=True)
 
+    # Initialize wandb if requested
+    if getattr(config, "use_wandb", False) and wandb is not None:
+        wandb.init(
+            project="arithmetic-llm",
+            name=f"instruction_lora",
+            config=config.to_dict(),
+        )
+        if model_config is not None:
+            wandb.config.update({"model": model_config}, allow_val_change=True)
+
     print(f"LoRA fine-tuning output directory: {output_dir}")
 
     # Load tokenizer
@@ -103,7 +118,7 @@ def train_instruction_model_lora(
             'num_layers': 6,
             'dim_feedforward': 1024,
             'dropout': 0.1,
-            'max_seq_length': 512
+            'max_seq_length': 2048
         })
     else:
         model_config['vocab_size'] = vocab_size
@@ -116,7 +131,7 @@ def train_instruction_model_lora(
         )
 
     model_config['vocab_size'] = vocab_size
-    max_seq_length = model_config.get('max_seq_length', 512)
+    max_seq_length = model_config.get('max_seq_length', 2048)
 
     # Create dataloaders
     print("Creating dataloaders...")
@@ -129,8 +144,8 @@ def train_instruction_model_lora(
         shuffle=True,
         num_workers=getattr(config, 'num_workers', 4),
         mode="instruction",
-        use_curriculum=getattr(config, 'use_curriculum', True),
-        curriculum_steps=getattr(config, 'curriculum_steps', 10000)
+        use_curriculum=getattr(config, 'use_curriculum', False),
+        curriculum_steps=getattr(config, 'curriculum_steps', 10000),
     )
     print(f"Training batches: {len(train_dataloader)}")
     print(f"Validation batches: {len(val_dataloader)}")
@@ -229,6 +244,21 @@ def train_instruction_model_lora(
             'val_loss': val_loss,
             'learning_rate': scheduler.get_last_lr()[0]
         })
+
+        # Log epoch metrics to wandb
+        if (
+            getattr(config, "use_wandb", False)
+            and wandb is not None
+            and wandb.run is not None
+        ):
+            wandb.log(
+                {
+                    "epoch/train_loss": train_loss,
+                    "epoch/val_loss": val_loss,
+                    "epoch/learning_rate": scheduler.get_last_lr()[0],
+                },
+                step=global_step,
+            )
 
         # Save best model checkpoint (LoRA weights included)
         if val_loss < best_val_loss:

@@ -4,6 +4,7 @@ import json
 import concurrent.futures
 import multiprocessing
 from typing import Tuple, List, Dict
+from transformers.modeling_utils import no_init_weights
 from core.inference.generator import ExpressionGenerator
 from core.eval.evaluator import eval_expression
 
@@ -68,6 +69,7 @@ def _generate_chunk(chunk_size: int, min_depth: int, max_depth: int, num_range: 
         
     return entries, token_count
 
+
 class CorpusGenerator:
     """Generates training corpus of arithmetic expressions and evaluations using target token counts."""
     
@@ -119,7 +121,7 @@ class CorpusGenerator:
             with concurrent.futures.ProcessPoolExecutor(max_workers=num_workers) as executor:
                 # We submit batches of tasks
                 active_futures = set()
-                
+
                 # Initial fill of the worker pool
                 for _ in range(num_workers * 2):
                     active_futures.add(executor.submit(
@@ -162,6 +164,7 @@ class CorpusGenerator:
     def generate_corpus(self) -> None:
         """Generate foundational training corpus and save to disk in JSONL format."""
         self._generate_parallel(self.output_path)
+
     
     def generate_instruction_corpus(self, output_path: str) -> None:
         """Generate instruction-formatted corpus for fine-tuning in JSONL format."""

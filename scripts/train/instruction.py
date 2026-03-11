@@ -67,15 +67,15 @@ def main():
     parser.add_argument(
         "--batch-size",
         type=int,
-        default=32,
-        help="Batch size (default: 32)"
+        default=4,
+        help="Batch size (default: 4)"
     )
     
     parser.add_argument(
         "--num-epochs",
         type=int,
-        default=5,
-        help="Number of fine-tuning epochs (default: 5)"
+        default=3,
+        help="Number of fine-tuning epochs (default: 3)"
     )
     
     parser.add_argument(
@@ -108,18 +108,78 @@ def main():
     )
     
     parser.add_argument(
-        "--disable-curriculum",
+        "--wandb",
         action="store_true",
-        help="Disable curriculum learning sampling (anneals from easy to hard by default)"
+        help="Enable Weights & Biases logging for training metrics"
+    )
+
+    parser.add_argument(
+        "--use-curriculum",
+        action="store_true",
+        help="Use curriculum learning sampling (anneals from easy to hard)"
+    )
+    
+    parser.add_argument(
+        "--contrastive",
+        action="store_true",
+        help="Enable contrastive learning (correct vs wrong completion)"
+    )
+    
+    parser.add_argument(
+        "--contrastive-weight",
+        type=float,
+        default=0.3,
+        help="Weight for contrastive loss (default: 0.3)"
+    )
+    
+    parser.add_argument(
+        "--contrastive-temperature",
+        type=float,
+        default=0.05,
+        help="Temperature for contrastive margin (default: 0.05, lower = stronger push)"
+    )
+    
+    parser.add_argument(
+        "--contrastive-warmup-steps",
+        type=int,
+        default=0,
+        help="CE-only steps before adding contrastive loss (0 = no warmup, default: 0)"
+    )
+    parser.add_argument(
+        "--no-drop-subtree",
+        action="store_true",
+        help="Contrastive: only wrong step/final, no drop-subtree (Type C) negatives"
+    )
+    parser.add_argument(
+        "--contrastive-no-prop",
+        action="store_true",
+        help="Contrastive: no-prop wrong (one step or final wrong only), loss only at corrupted positions"
+    )
+    parser.add_argument(
+        "--contrastive-margin-max",
+        type=float,
+        default=None,
+        help="Contrastive: only backprop on samples with (Lc-Lw) < this (raw margin, e.g. 0.2~0.5); default=all"
+    )
+    parser.add_argument(
+        "--contrastive-hard-ratio",
+        type=float,
+        default=1.0,
+        help="Contrastive: only backprop on top this fraction by loss (e.g. 0.3 = top 30%%); default=1.0"
+    )
+    parser.add_argument(
+        "--contrastive-warmup-epochs",
+        type=float,
+        default=0,
+        help="If > 0, CE-only epochs before contrastive (overrides warmup-steps; e.g. 3 = first 3 epochs like baseline)"
     )
     
     parser.add_argument(
         "--num-workers",
         type=int,
-        default=4,
-        help="Number of dataloader worker threads (default: 4)"
+        default=8,
+        help="Number of dataloader worker threads (default: 8)"
     )
-    
     # Model configuration
     parser.add_argument(
         "--model-config",
@@ -133,6 +193,21 @@ def main():
     if args.config:
         print(f"Loading training configuration from: {args.config}")
         config = TrainingConfig.from_json(args.config)
+        config.use_wandb = getattr(config, "use_wandb", False) or args.wandb
+        if args.contrastive:
+            config.use_contrastive = True
+            config.contrastive_weight = getattr(config, "contrastive_weight", 0.1) or args.contrastive_weight
+            config.contrastive_temperature = getattr(config, "contrastive_temperature", 0.1) or args.contrastive_temperature
+            config.contrastive_warmup_steps = getattr(args, "contrastive_warmup_steps", 0) or getattr(config, "contrastive_warmup_steps", 0)
+            config.contrastive_warmup_epochs = getattr(args, "contrastive_warmup_epochs", 0) or getattr(config, "contrastive_warmup_epochs", 0)
+            if getattr(args, "no_drop_subtree", False):
+                config.contrastive_allow_drop_subtree = False
+            if getattr(args, "contrastive_no_prop", False):
+                config.contrastive_no_prop = True
+            if getattr(args, "contrastive_margin_max", None) is not None:
+                config.contrastive_margin_max = args.contrastive_margin_max
+            if getattr(args, "contrastive_hard_ratio", 1.0) != 1.0:
+                config.contrastive_hard_ratio = args.contrastive_hard_ratio
     else:
         # Determine device
         if args.device == "auto":
@@ -153,8 +228,18 @@ def main():
             gradient_clip=args.gradient_clip,
             save_every=args.save_every,
             device=device,
-            use_curriculum=not args.disable_curriculum,
-            num_workers=args.num_workers
+            use_wandb=args.wandb,
+            use_contrastive=args.contrastive,
+            contrastive_weight=args.contrastive_weight,
+            contrastive_temperature=args.contrastive_temperature,
+            contrastive_warmup_steps=args.contrastive_warmup_steps,
+            contrastive_warmup_epochs=getattr(args, "contrastive_warmup_epochs", 0),
+            contrastive_allow_drop_subtree=not getattr(args, "no_drop_subtree", False),
+            contrastive_no_prop=getattr(args, "contrastive_no_prop", False),
+            contrastive_margin_max=getattr(args, "contrastive_margin_max", None),
+            contrastive_hard_ratio=getattr(args, "contrastive_hard_ratio", 1.0),
+            use_curriculum=args.use_curriculum,
+            num_workers=args.num_workers,
         )
     
     # Load model configuration if provided
@@ -180,6 +265,17 @@ def main():
     print(f"  Gradient clip: {config.gradient_clip}")
     print(f"  Save every: {config.save_every} steps")
     print(f"  Device: {config.device}")
+    print(f"  Wandb: {getattr(config, 'use_wandb', False)}")
+    print(f"  Contrastive: {getattr(config, 'use_contrastive', False)}")
+    if getattr(config, 'use_contrastive', False):
+        print(f"    contrastive_weight: {getattr(config, 'contrastive_weight', 0.1)}")
+        print(f"    contrastive_temperature: {getattr(config, 'contrastive_temperature', 0.1)}")
+        print(f"    contrastive_warmup_steps: {getattr(config, 'contrastive_warmup_steps', 0)}")
+        print(f"    contrastive_warmup_epochs: {getattr(config, 'contrastive_warmup_epochs', 0)}")
+        print(f"    contrastive_allow_drop_subtree: {getattr(config, 'contrastive_allow_drop_subtree', True)}")
+        print(f"    contrastive_no_prop: {getattr(config, 'contrastive_no_prop', False)}")
+        print(f"    contrastive_margin_max: {getattr(config, 'contrastive_margin_max', None)}")
+        print(f"    contrastive_hard_ratio: {getattr(config, 'contrastive_hard_ratio', 1.0)}")
     print("=" * 60 + "\n")
     
     # Train model
