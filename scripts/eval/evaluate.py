@@ -58,13 +58,6 @@ def main():
     )
     
     parser.add_argument(
-        "--min-depth",
-        type=int,
-        default=1,
-        help="Minimum depth of test expressions (default: 1)"
-    )
-    
-    parser.add_argument(
         "--max-depth",
         type=int,
         default=5,
@@ -186,7 +179,6 @@ def main():
             num_samples=args.num_samples,
             min_depth=args.min_depth,
             max_depth=args.max_depth,
-            min_depth=args.min_depth,
             num_range=tuple(args.num_range),
             output_dir=args.output_dir,
             max_gen_length=args.max_gen_length,
