@@ -3,6 +3,7 @@
 import json
 import torch
 import numpy as np
+from functools import partial
 from torch.utils.data import Dataset, DataLoader, Sampler, WeightedRandomSampler
 from typing import List, Tuple, Optional, Iterator, Union
 from core.data.tokenizer import (
@@ -683,13 +684,12 @@ def create_dataloaders(
     pad_token_id = tokenizer.token2id.get('<pad>', 0)
     
     # Create collate function with pad token ID, mode, and contrastive flag
-    def collate_with_pad(batch):
-        return collate_fn(
-            batch,
-            pad_token_id=pad_token_id,
-            mode=mode,
-            use_contrastive=use_contrastive,
-        )
+    collate_with_pad = partial(
+        collate_fn,
+        pad_token_id=pad_token_id,
+        mode=mode,
+        use_contrastive=use_contrastive,
+    )
     
     # Setup sampler
     train_sampler = None

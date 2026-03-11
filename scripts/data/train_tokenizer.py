@@ -62,7 +62,7 @@ def main():
     elif args.tokenizer_type == "digit":
         print(f"Training digit tokenizer")
         tokenizer = ArithmeticDigitTokenizer()
-        tokenizer.train()
+        tokenizer.train(args.corpus_path)
     else:
         parser.error(f"Invalid tokenizer type: {args.tokenizer_type}")
     
