@@ -22,8 +22,13 @@ Consolidated technical notes for tokenizer behavior, data loading, and evaluatio
 ## Data loading and masking (core/data/loader.py)
 
 ### Foundational mode
-- Input sequence is `problem + solution`.
+- Input sequence is `problem + solution` **as one line per sample** (see Foundational corpus below).
 - All non-padding tokens contribute to loss.
+
+### Foundational corpus (scripts/data/generate_foundational_plaintext.py)
+- **Important:** Each line in the .txt must be the **full** sequence: `problem + " " + solution`. Previously the script wrote problem and solution as **separate** lines, so the model never saw "Evaluate: X <think> ..." in one example and could not learn to continue after the prompt. This is now fixed by default.
+- Regenerate the corpus and retrain the foundational model if you used the old script.
+- Options: `--valid-only` to exclude ERROR solutions; `--legacy-separate-lines` to restore old (problem/solution as two lines) behavior.
 
 ### Instruction mode
 - Prompt is `problem + " <think>"`; target is `solution`.

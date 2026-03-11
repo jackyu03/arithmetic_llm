@@ -22,10 +22,24 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Path to tokenizer directory"
     )
     parser.add_argument(
+        "--tokenizer-type",
+        type=str,
+        default="digit",
+        choices=["digit", "bpe"],
+        help="Tokenizer type to load (default: digit)"
+    )
+    parser.add_argument(
         "--sft-checkpoint",
         type=str,
         required=True,
         help="Path to SFT checkpoint"
+    )
+    parser.add_argument(
+        "--tokenizer-type",
+        type=str,
+        default="digit",
+        choices=["digit", "bpe"],
+        help="Tokenizer type to load (default: digit)"
     )
     parser.add_argument(
         "--output-dir",
@@ -52,7 +66,7 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--top-k", type=int, default=50)
     parser.add_argument("--top-p", type=float, default=0.9)
     parser.add_argument("--kl-penalty-coef", type=float, default=0.05)
-    parser.add_argument("--max-gen-length", type=int, default=512)
+    parser.add_argument("--max-gen-length", type=int, default=3072)
     parser.add_argument("--gradient-accumulation-steps", type=int, default=1)
     parser.add_argument("--log-every", type=int, default=50)
     parser.add_argument(
@@ -61,6 +75,15 @@ def _build_parser() -> argparse.ArgumentParser:
         default=None,
         help="Optional sub-batch size for candidate processing"
     )
+    
+    # Ablation Study Toggles
+    parser.add_argument("--reward-format", action="store_true", help="Enable structural format reward")
+    parser.add_argument("--reward-format-weight", type=float, default=0.2, help="Weight for format reward")
+    parser.add_argument("--reward-equation-steps", action="store_true", help="Enable step-wise math verification reward")
+    parser.add_argument("--reward-step-weight", type=float, default=0.1, help="Reward/Penalty per step")
+    parser.add_argument("--reward-length-penalty", action="store_true", help="Enable Occam's razor length penalty")
+    parser.add_argument("--reward-length-penalty-weight", type=float, default=0.001, help="Penalty per character/token length")
+    
     parser.add_argument(
         "--filter-invalid-instruction",
         action=argparse.BooleanOptionalAction,
@@ -106,6 +129,12 @@ def main() -> None:
         max_gen_length=args.max_gen_length,
         gradient_accumulation_steps=args.gradient_accumulation_steps,
         log_every=args.log_every,
+        reward_format=args.reward_format,
+        reward_format_weight=args.reward_format_weight,
+        reward_equation_steps=args.reward_equation_steps,
+        reward_step_weight=args.reward_step_weight,
+        reward_length_penalty=args.reward_length_penalty,
+        reward_length_penalty_weight=args.reward_length_penalty_weight,
     )
     config.validate()
 
@@ -116,13 +145,13 @@ def main() -> None:
         output_dir=args.output_dir,
         config=config,
         data_mode=args.data_mode,
+        tokenizer_type=args.tokenizer_type,
         num_samples=args.num_samples,
         max_depth=args.max_depth,
         num_range=(args.num_range_min, args.num_range_max),
         filter_invalid_instruction=args.filter_invalid_instruction,
         candidate_sub_batch_size=args.candidate_sub_batch_size,
     )
-
 
 if __name__ == "__main__":
     main()

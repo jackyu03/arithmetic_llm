@@ -15,8 +15,22 @@ def main():
     parser.add_argument(
         "--num-samples",
         type=int,
-        required=True,
-        help="Number of expression-evaluation pairs to generate"
+        default=None,
+        help="Legacy sample count to generate"
+    )
+
+    parser.add_argument(
+        "--target-tokens",
+        type=int,
+        default=None,
+        help="Target total tokens to generate"
+    )
+
+    parser.add_argument(
+        "--min-depth",
+        type=int,
+        default=1,
+        help="Minimum depth of expression trees (default: 1)"
     )
     
     parser.add_argument(
@@ -71,11 +85,18 @@ def main():
     args = parser.parse_args()
     
     # Validate arguments
-    if args.num_samples <= 0:
+    if args.num_samples is None and args.target_tokens is None:
+        parser.error("Must provide either --num-samples or --target-tokens")
+    if args.num_samples is not None and args.num_samples <= 0:
         parser.error("num-samples must be positive")
+    if args.target_tokens is not None and args.target_tokens <= 0:
+        parser.error("target-tokens must be positive")
     
-    if args.max_depth <= 0:
-        parser.error("max-depth must be positive")
+    if args.min_depth <= 0:
+        parser.error("min-depth must be positive")
+    
+    if args.max_depth < args.min_depth:
+        parser.error("max-depth must be >= min-depth")
     
     if args.num_range[0] >= args.num_range[1]:
         parser.error("num-range MIN must be less than MAX")
@@ -91,9 +112,12 @@ def main():
     num_range = tuple(args.num_range)
     
     if not args.instruction_only:
-        print(f"Generating foundational corpus with {args.num_samples} samples...")
+        metric = f"{args.target_tokens} tokens" if args.target_tokens else f"{args.num_samples} samples"
+        print(f"Generating foundational corpus targeting {metric}...")
         generator = CorpusGenerator(
+            target_tokens=args.target_tokens,
             num_samples=args.num_samples,
+            min_depth=args.min_depth,
             max_depth=args.max_depth,
             num_range=num_range,
             invalid_rate=args.invalid_rate,
@@ -103,9 +127,12 @@ def main():
         print(f"Foundational corpus saved to: {args.output_foundational}")
     
     if not args.foundational_only:
-        print(f"Generating instruction corpus with {args.num_samples} samples...")
+        metric = f"{args.target_tokens} tokens" if args.target_tokens else f"{args.num_samples} samples"
+        print(f"Generating instruction corpus targeting {metric}...")
         generator = CorpusGenerator(
+            target_tokens=args.target_tokens,
             num_samples=args.num_samples,
+            min_depth=args.min_depth,
             max_depth=args.max_depth,
             num_range=num_range,
             invalid_rate=args.invalid_rate,

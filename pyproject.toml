@@ -1,10 +1,10 @@
 [tool.poetry]
-name = "stat359_su25"
+name = "arithmetic_llm"
 version = "0.1.0"
 description = ""
-package-mode = false
-authors = ["Your Name <you@example.com>"]
+authors = ["Jack Yu & Jingyu Huo"]
 readme = "README.md"
+packages = [{include = "core"}, {include = "scripts"}]
 
 [tool.poetry.dependencies]
 python = "^3.10"
@@ -27,7 +27,11 @@ langchain = "^0.3.26"
 langchain-ollama = "^0.3.3"
 umap-learn = "^0.5.7"
 plotly = "^6.2.0"
+wandb = {version = "^0.18.0", optional = true}
 
+
+[tool.poetry.extras]
+wandb = ["wandb"]
 
 [build-system]
 requires = ["poetry-core"]

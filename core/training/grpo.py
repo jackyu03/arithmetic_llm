@@ -6,7 +6,7 @@ import os
 import math
 from datetime import datetime
 
-from core.data.tokenizer import ArithmeticBPETokenizer
+from core.data.tokenizer import ArithmeticBPETokenizer, ArithmeticDigitTokenizer
 from core.data.loader import ArithmeticDataset
 from core.eval.evaluator import eval_expression
 from core.inference.generator import ExpressionGenerator
@@ -24,7 +24,7 @@ def _batch_iter(items: List[dict], batch_size: int) -> Iterator[Tuple[List[str],
 
 def _load_instruction_pairs(
     instruction_corpus_path: str,
-    tokenizer: ArithmeticBPETokenizer,
+    tokenizer: Any,
     validate_expressions: bool
 ) -> List[dict]:
     dataset = ArithmeticDataset(
@@ -65,6 +65,7 @@ def train_grpo_model(
     output_dir: str,
     config: GRPOConfig,
     data_mode: str = "instruction",
+    tokenizer_type: str = "digit",
     num_samples: int = 1000,
     max_depth: int = 5,
     num_range: Tuple[int, int] = (1, 20),
@@ -72,7 +73,12 @@ def train_grpo_model(
     candidate_sub_batch_size: Optional[int] = None
 ) -> Dict[str, Any]:
     """Train GRPO model using instruction corpus or generated data."""
-    tokenizer = ArithmeticBPETokenizer()
+    if tokenizer_type == "digit":
+        from core.data.tokenizer import ArithmeticDigitTokenizer
+        tokenizer = ArithmeticDigitTokenizer()
+    else:
+        from core.data.tokenizer import ArithmeticBPETokenizer
+        tokenizer = ArithmeticBPETokenizer()
     tokenizer.load(tokenizer_path)
 
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")

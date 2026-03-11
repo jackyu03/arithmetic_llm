@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 """Command-line interface for model evaluation."""
 
+import random
 import argparse
+from datetime import datetime
 from core.eval.evaluator import ModelEvaluator
 
 
@@ -27,6 +29,14 @@ def main():
     )
 
     parser.add_argument(
+        "--tokenizer-type",
+        type=str,
+        default="digit",
+        choices=["digit", "bpe"],
+        help="Tokenizer type to load (default: digit)"
+    )
+
+    parser.add_argument(
         "--base-checkpoint",
         type=str,
         help="Path to base model checkpoint when evaluating a LoRA adapter"
@@ -38,6 +48,13 @@ def main():
         type=int,
         default=1000,
         help="Number of test expressions to generate (default: 1000)"
+    )
+
+    parser.add_argument(
+        "--min-depth",
+        type=int,
+        default=1,
+        help="Minimum depth of test expressions (default: 1)"
     )
     
     parser.add_argument(
@@ -60,7 +77,13 @@ def main():
         "--output-dir",
         type=str,
         default="evaluation_results",
-        help="Directory to save evaluation results (default: homeowrk/core/evaluation_results)"
+        help="Directory to save evaluation results (default: evaluation_results)"
+    )
+    
+    parser.add_argument(
+        "--log-all-questions",
+        action="store_true",
+        help="Log detailed results for all questions"
     )
     
     parser.add_argument(
@@ -71,17 +94,24 @@ def main():
     )
     
     parser.add_argument(
-        "--batch-size",
-        type=int,
-        default=1,
-        help="Batch size for inference (default: 1)"
-    )
-    
-    parser.add_argument(
         "--max-gen-length",
         type=int,
-        default=512,
-        help="Maximum generation length in tokens (default: 512)"
+        default=3072,
+        help="Maximum generation length in tokens (default: 3072)"
+    )
+
+    parser.add_argument(
+        "--seed",
+        type=int,
+        default=42,
+        help="Random seed for deterministic evaluation generation"
+    )
+
+    parser.add_argument(
+        "--max-sample-attempts",
+        type=int,
+        default=3,
+        help="Adaptive sampling: if think not followed by Step 1, resample up to this many times (default: 1 = disabled)"
     )
     
     args = parser.parse_args()
@@ -96,21 +126,29 @@ def main():
         )
     else:
         device = args.device
+    # Enforce deterministic random seeds for identically reproducible datasets
+    random.seed(args.seed)
+    import torch
+    torch.manual_seed(args.seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(args.seed)
     
     # Display configuration
     print("\n" + "=" * 60)
     print("MODEL EVALUATION")
     print("=" * 60)
     print(f"\nModel: {args.model_path}")
-    print(f"Tokenizer: {args.tokenizer_path}")
+    print(f"Tokenizer ({args.tokenizer_type}): {args.tokenizer_path}")
     print(f"Device: {device}")
     print("\nEvaluation Configuration:")
     print(f"  Test samples: {args.num_samples}")
+    print(f"  Min depth: {args.min_depth}")
     print(f"  Max depth: {args.max_depth}")
     print(f"  Number range: {args.num_range[0]} to {args.num_range[1]}")
-    print(f"  Batch size: {args.batch_size}")
     print(f"  Max generation length: {args.max_gen_length}")
     print(f"  Output directory: {args.output_dir}")
+    print(f"  Log all questions: {args.log_all_questions}")
+    print(f"  Max sample attempts (adaptive): {args.max_sample_attempts}")
     print("=" * 60 + "\n")
     
     # Create evaluator
@@ -119,6 +157,7 @@ def main():
         evaluator = ModelEvaluator(
             model_path=args.model_path,
             tokenizer_path=args.tokenizer_path,
+            tokenizer_type=args.tokenizer_type,
             base_checkpoint_path=args.base_checkpoint,
             device=device
         )
@@ -126,13 +165,25 @@ def main():
         
         # Run evaluation
         print("Starting evaluation...")
+        import os
+        os.makedirs(args.output_dir, exist_ok=True)
+        # Save evaluation arguments
+        import json
+        
+        args_dict = vars(args)
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        args_path = os.path.join(args.output_dir, f'evaluation_args_{timestamp}.json')
+        with open(args_path, 'w') as f:
+            json.dump(args_dict, f, indent=2)
         metrics = evaluator.evaluate(
             num_samples=args.num_samples,
+            min_depth=args.min_depth,
             max_depth=args.max_depth,
             num_range=tuple(args.num_range),
             output_dir=args.output_dir,
-            batch_size=args.batch_size,
-            max_gen_length=args.max_gen_length
+            max_gen_length=args.max_gen_length,
+            log_all_questions=args.log_all_questions,
+            max_sample_attempts=args.max_sample_attempts,
         )
         
         # Display results
@@ -144,6 +195,7 @@ def main():
         print(f"Parseable Samples: {metrics['parseable_samples']}")
         print(f"\nExact Match Accuracy: {metrics['exact_match_accuracy']:.2f}%")
         print(f"Parse Success Rate: {metrics['parse_success_rate']:.2f}%")
+        print(f"Expression Now Consistent: {metrics.get('expression_now_consistent_rate', 0):.2f}%")
         print(f"Avg Generation Length: {metrics['avg_generation_length']:.2f} tokens")
         print("=" * 60)
         

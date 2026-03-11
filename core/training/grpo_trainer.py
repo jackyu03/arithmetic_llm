@@ -10,6 +10,10 @@ import time
 
 import torch
 import torch.nn.functional as F
+try:
+    from tqdm import tqdm
+except ImportError:
+    tqdm = lambda x, **kwargs: x
 
 from core.data.tokenizer import ArithmeticBPETokenizer
 from core.eval.verifier import ArithmeticVerifier
@@ -42,7 +46,14 @@ class GRPOTrainer:
         self.tokenizer = tokenizer
         self.optimizer = None
         self.scheduler = None
-        self.verifier = ArithmeticVerifier()
+        self.verifier = ArithmeticVerifier(
+            reward_format=config.reward_format,
+            format_weight=config.reward_format_weight,
+            reward_length_penalty=config.reward_length_penalty,
+            length_penalty_weight=config.reward_length_penalty_weight,
+            reward_equation_steps=config.reward_equation_steps,
+            step_weight=config.reward_step_weight
+        )
         self.use_mixed_precision = use_mixed_precision
         self.candidate_sub_batch_size = candidate_sub_batch_size
         device_type = "cuda" if self.config.device == "cuda" else "cpu"
@@ -126,7 +137,7 @@ class GRPOTrainer:
                 "num_layers": 6,
                 "dim_feedforward": 1024,
                 "dropout": 0.1,
-                "max_seq_length": 512,
+                "max_seq_length": 2048,
             },
         )
         checkpoint_vocab_size = checkpoint_data.get("tokenizer_vocab_size")
@@ -458,7 +469,9 @@ class GRPOTrainer:
             step_time = None
             accum_metrics = None
             accum_batches = 0
-            for batch_idx, batch in enumerate(train_dataloader):
+            
+            pbar = tqdm(train_dataloader, desc=f"Epoch {epoch + 1}/{self.config.num_epochs}", total=len(train_dataloader) if hasattr(train_dataloader, "__len__") else None)
+            for batch_idx, batch in enumerate(pbar):
                 did_step = False
                 if isinstance(batch, dict):
                     prompts = batch.get("prompts")
@@ -793,7 +806,11 @@ class GRPOTrainer:
 
         self.policy_model.eval()
         with torch.no_grad():
-            while input_ids.shape[1] < max_gen_length:
+            initial_len = input_ids.shape[1]
+            for _ in range(max_gen_length - initial_len):
+                if finished.all():
+                    break
+                    
                 device_type = "cuda" if self.config.device == "cuda" else "cpu"
                 with torch.amp.autocast(
                     device_type=device_type,

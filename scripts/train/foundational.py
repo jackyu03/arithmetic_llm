@@ -29,6 +29,14 @@ def main():
     )
     
     parser.add_argument(
+        "--tokenizer-type",
+        type=str,
+        default="digit",
+        choices=["digit", "bpe"],
+        help="Tokenizer type to load: 'digit' or 'bpe' (default: digit)"
+    )
+    
+    parser.add_argument(
         "--output-dir",
         type=str,
         default="models",
@@ -52,14 +60,14 @@ def main():
     parser.add_argument(
         "--batch-size",
         type=int,
-        default=32,
+        default=4,
         help="Batch size (default: 32)"
     )
     
     parser.add_argument(
         "--num-epochs",
         type=int,
-        default=10,
+        default=1,
         help="Number of training epochs (default: 10)"
     )
     
@@ -78,10 +86,11 @@ def main():
     )
     
     parser.add_argument(
-        "--save-every",
+        "--save-every", "--save-steps",
         type=int,
-        default=1000,
-        help="Save checkpoint every N steps (default: 1000)"
+        default=25000,
+        help="Save checkpoint every N steps (default: 25000)",
+        dest="save_every"
     )
     
     parser.add_argument(
@@ -90,7 +99,25 @@ def main():
         default="auto",
         help="Device for training: 'cuda', 'mps', 'cpu', or 'auto' (default: auto)"
     )
+
+    parser.add_argument(
+        "--use-curriculum",
+        action="store_true",
+        help="Use curriculum learning sampling (anneals from easy to hard)"
+    )
     
+    parser.add_argument(
+        "--wandb",
+        action="store_true",
+        help="Enable Weights & Biases logging for training metrics"
+    )
+
+    parser.add_argument(
+        "--num-workers",
+        type=int,
+        default=8,
+        help="Number of dataloader worker threads (default: 4)"
+    )
     # Model configuration
     parser.add_argument(
         "--model-config",
@@ -136,7 +163,7 @@ def main():
     parser.add_argument(
         "--max-seq-length",
         type=int,
-        default=512,
+        default=2048,
         help="Maximum sequence length (default: 512)"
     )
     
@@ -146,6 +173,7 @@ def main():
     if args.config:
         print(f"Loading training configuration from: {args.config}")
         config = TrainingConfig.from_json(args.config)
+        config.use_wandb = getattr(config, "use_wandb", False) or args.wandb
     else:
         # Determine device
         if args.device == "auto":
@@ -165,7 +193,10 @@ def main():
             warmup_steps=args.warmup_steps,
             gradient_clip=args.gradient_clip,
             save_every=args.save_every,
-            device=device
+            device=device,
+            use_wandb=args.wandb,
+            use_curriculum=args.use_curriculum,
+            num_workers=args.num_workers,
         )
     
     # Load or create model configuration
@@ -188,7 +219,7 @@ def main():
     print("FOUNDATIONAL MODEL TRAINING")
     print("=" * 60)
     print(f"\nCorpus: {args.corpus_path}")
-    print(f"Tokenizer: {args.tokenizer_path}")
+    print(f"Tokenizer ({args.tokenizer_type}): {args.tokenizer_path}")
     print(f"Output directory: {args.output_dir}")
     print("\nTraining Configuration:")
     print(f"  Learning rate: {config.learning_rate}")
@@ -198,6 +229,7 @@ def main():
     print(f"  Gradient clip: {config.gradient_clip}")
     print(f"  Save every: {config.save_every} steps")
     print(f"  Device: {config.device}")
+    print(f"  Wandb: {getattr(config, 'use_wandb', False)}")
     print("\nModel Configuration:")
     print(f"  d_model: {model_config['d_model']}")
     print(f"  nhead: {model_config['nhead']}")
@@ -212,6 +244,7 @@ def main():
         final_checkpoint = train_foundational_model(
             corpus_path=args.corpus_path,
             tokenizer_path=args.tokenizer_path,
+            tokenizer_type=args.tokenizer_type,
             output_dir=args.output_dir,
             config=config,
             model_config=model_config

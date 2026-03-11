@@ -5,7 +5,7 @@ import torch
 from dataclasses import dataclass, asdict
 from typing import Optional, Any, Dict
 
-from .lora_config import LoRAConfig
+from core.model.lora.config import LoRAConfig
 
 
 @dataclass
@@ -22,6 +22,16 @@ class TrainingConfig:
         eval_every: Evaluate model every N steps
         device: Device for training ('cuda', 'mps', or 'cpu')
         lora_config: Optional LoRA configuration
+        use_wandb: Whether to log metrics to Weights & Biases
+        use_contrastive: Whether to use contrastive loss (correct vs wrong completion)
+        contrastive_weight: Weight for contrastive loss term
+        contrastive_temperature: Temperature for contrastive margin
+        contrastive_warmup_steps: Steps of CE-only before adding contrastive loss (0 = no warmup)
+        contrastive_warmup_epochs: If > 0, CE-only epochs before contrastive (overrides warmup_steps; set from steps_per_epoch in training)
+        use_result_token_contrastive: If True (default when contrastive), only score at "Step ... = <result>" and "Final Result: <answer>" positions
+        contrastive_allow_drop_subtree: If False, wrong solutions only use wrong step/final (no Type C drop-subtree)
+        contrastive_margin_max: If set, only samples with (Lc-Lw) < this get contrastive loss (raw; e.g. 0.2~0.5)
+        contrastive_hard_ratio: If < 1.0, only top this fraction by loss get contrastive (e.g. 0.3 = top 30%%)
     """
     
     learning_rate: float = 1e-4
@@ -36,6 +46,20 @@ class TrainingConfig:
         else "mps" if torch.backends.mps.is_available() 
         else "cpu"
     )
+    use_curriculum: bool = True
+    curriculum_steps: int = 10000
+    num_workers: int = 4
+    use_wandb: bool = False
+    use_contrastive: bool = False
+    contrastive_weight: float = 0.3
+    contrastive_temperature: float = 0.05
+    contrastive_warmup_steps: int = 0
+    contrastive_warmup_epochs: float = 0.0
+    use_result_token_contrastive: bool = True
+    contrastive_allow_drop_subtree: bool = True
+    contrastive_no_prop: bool = False  # no-prop wrong + mask only corrupted step/final
+    contrastive_margin_max: Optional[float] = None
+    contrastive_hard_ratio: float = 1.0
     lora_config: Optional[LoRAConfig] = None
     
     def validate(self) -> None:
@@ -77,6 +101,11 @@ class TrainingConfig:
         if self.eval_every <= 0:
             raise ValueError(
                 f"eval_every must be positive, got {self.eval_every}"
+            )
+            
+        if self.num_workers < 0:
+            raise ValueError(
+                f"num_workers must be non-negative, got {self.num_workers}"
             )
         
         if self.device not in ["cuda", "mps", "cpu"]:
@@ -128,6 +157,15 @@ class TrainingConfig:
         if "lora_config" in config_dict and config_dict["lora_config"] is not None:
             lora_config = LoRAConfig(**config_dict["lora_config"])
         config_dict["lora_config"] = lora_config
+        config_dict.setdefault("use_contrastive", False)
+        config_dict.setdefault("contrastive_weight", 0.3)
+        config_dict.setdefault("contrastive_temperature", 0.05)
+        config_dict.setdefault("contrastive_warmup_steps", 0)
+        config_dict.setdefault("contrastive_warmup_epochs", 0.0)
+        config_dict.setdefault("use_result_token_contrastive", True)
+        config_dict.setdefault("contrastive_allow_drop_subtree", True)
+        config_dict.setdefault("contrastive_margin_max", None)
+        config_dict.setdefault("contrastive_hard_ratio", 1.0)
 
         config = cls(**config_dict)
         

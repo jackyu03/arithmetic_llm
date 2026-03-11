@@ -31,6 +31,14 @@ def main():
     )
 
     parser.add_argument(
+        "--tokenizer-type",
+        type=str,
+        default="digit",
+        choices=["digit", "bpe"],
+        help="Tokenizer type to load (default: digit)"
+    )
+
+    parser.add_argument(
         "--foundational-checkpoint",
         type=str,
         required=True,
@@ -87,10 +95,11 @@ def main():
     )
 
     parser.add_argument(
-        "--save-every",
+        "--save-every", "--save-steps",
         type=int,
-        default=500,
-        help="Save checkpoint every N steps (default: 500)"
+        default=1000,
+        help="Save checkpoint every N steps (default: 1000)",
+        dest="save_every"
     )
 
     parser.add_argument(
@@ -98,6 +107,18 @@ def main():
         type=str,
         default="auto",
         help="Device for training: 'cuda', 'mps', 'cpu', or 'auto' (default: auto)"
+    )
+
+    parser.add_argument(
+        "--wandb",
+        action="store_true",
+        help="Enable Weights & Biases logging for training metrics"
+    )
+
+    parser.add_argument(
+        "--use-curriculum",
+        action="store_true",
+        help="Use curriculum learning sampling (anneals from easy to hard)"
     )
 
     # LoRA configuration
@@ -135,6 +156,12 @@ def main():
         help="Save merged model after training"
     )
 
+    parser.add_argument(
+        "--num-workers",
+        type=int,
+        default=4,
+        help="Number of dataloader worker threads (default: 4)"
+    )
     # Model configuration
     parser.add_argument(
         "--model-config",
@@ -148,6 +175,7 @@ def main():
     if args.config:
         print(f"Loading training configuration from: {args.config}")
         config = TrainingConfig.from_json(args.config)
+        config.use_wandb = getattr(config, "use_wandb", False) or args.wandb
     else:
         if args.device == "auto":
             import torch
@@ -166,7 +194,10 @@ def main():
             warmup_steps=args.warmup_steps,
             gradient_clip=args.gradient_clip,
             save_every=args.save_every,
-            device=device
+            device=device,
+            use_wandb=args.wandb,
+            use_curriculum=args.use_curriculum,
+            num_workers=args.num_workers,
         )
 
     target_modules = [
@@ -191,7 +222,7 @@ def main():
     print("LORA INSTRUCTION FINE-TUNING")
     print("=" * 60)
     print(f"\nInstruction corpus: {args.instruction_corpus_path}")
-    print(f"Tokenizer: {args.tokenizer_path}")
+    print(f"Tokenizer ({args.tokenizer_type}): {args.tokenizer_path}")
     print(f"Foundational checkpoint: {args.foundational_checkpoint}")
     print(f"Output directory: {args.output_dir}")
     print("\nLoRA Configuration:")
@@ -207,6 +238,7 @@ def main():
     print(f"  Gradient clip: {config.gradient_clip}")
     print(f"  Save every: {config.save_every} steps")
     print(f"  Device: {config.device}")
+    print(f"  Wandb: {getattr(config, 'use_wandb', False)}")
     print("=" * 60 + "\n")
 
     # Train model
@@ -214,6 +246,7 @@ def main():
         adapter_path = train_instruction_model_lora(
             instruction_corpus_path=args.instruction_corpus_path,
             tokenizer_path=args.tokenizer_path,
+            tokenizer_type=args.tokenizer_type,
             foundational_checkpoint=args.foundational_checkpoint,
             output_dir=args.output_dir,
             config=config,

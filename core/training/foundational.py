@@ -10,12 +10,18 @@ import torch
 import torch.nn as nn
 from datetime import datetime
 from tqdm import tqdm
-from typing import Optional, Dict, Tuple
+from typing import Optional, Dict, Tuple, Any
 
 from core.model.transformer import ArithmeticTransformer
-from core.data.tokenizer import ArithmeticBPETokenizer
+from core.data.tokenizer import ArithmeticBPETokenizer, ArithmeticDigitTokenizer
 from core.data.loader import create_dataloaders
 from core.training.config import TrainingConfig
+from core.training.contrastive import compute_contrastive_loss
+
+try:
+    import wandb
+except ImportError:
+    wandb = None
 
 
 def get_linear_schedule_with_warmup(
@@ -153,7 +159,8 @@ def train_epoch(
     epoch: int,
     global_step: int,
     output_dir: str,
-    tokenizer_vocab_size: int
+    tokenizer_vocab_size: int,
+    train_sampler: Optional[Any] = None
 ) -> Tuple[float, int]:
     """Train model for one epoch.
     
@@ -167,6 +174,7 @@ def train_epoch(
         global_step: Current global step
         output_dir: Directory to save checkpoints
         tokenizer_vocab_size: Size of tokenizer vocabulary
+        train_sampler: Optional curriculum sampler to step
         
     Returns:
         Tuple of (average_loss, final_global_step)
@@ -209,6 +217,11 @@ def train_epoch(
         # Optimizer step
         optimizer.step()
         scheduler.step()
+        if train_sampler is not None:
+            train_sampler.step()
+        
+        if train_sampler is not None:
+            train_sampler.step()
         
         # Update statistics (accumulate on GPU, sync less frequently)
         total_loss += loss.detach()  # Keep on GPU
@@ -222,6 +235,20 @@ def train_epoch(
                 'avg_loss': (total_loss / num_batches).item(),
                 'lr': scheduler.get_last_lr()[0]
             })
+        
+        # Log step-level metrics to wandb
+        if (
+            wandb is not None
+            and wandb.run is not None
+            and getattr(config, "use_wandb", False)
+        ):
+            wandb.log(
+                {
+                    "train/loss": loss.item(),
+                    "train/learning_rate": scheduler.get_last_lr()[0],
+                },
+                step=global_step,
+            )
         
         # Save checkpoint at intervals
         if global_step % config.save_every == 0:
@@ -239,6 +266,161 @@ def train_epoch(
             )
             print(f"\nCheckpoint saved at step {global_step}: {checkpoint_path}")
     
+    avg_loss = (total_loss / num_batches).item() if num_batches > 0 else 0.0
+    return avg_loss, global_step
+
+
+def train_epoch_with_contrastive(
+    model: ArithmeticTransformer,
+    train_dataloader: torch.utils.data.DataLoader,
+    optimizer: torch.optim.Optimizer,
+    scheduler: torch.optim.lr_scheduler.LambdaLR,
+    config: TrainingConfig,
+    epoch: int,
+    global_step: int,
+    output_dir: str,
+    tokenizer_vocab_size: int,
+    train_sampler: Optional[Any] = None,
+) -> Tuple[float, int]:
+    """Train one epoch with CE loss + contrastive loss (correct vs wrong completion)."""
+    model.train()
+    total_loss = 0.0
+    num_batches = 0
+    contrastive_weight = getattr(config, "contrastive_weight", 0.1)
+    contrastive_temperature = getattr(config, "contrastive_temperature", 0.1)
+    contrastive_warmup_steps = getattr(config, "contrastive_warmup_steps", 0)
+
+    progress_bar = tqdm(train_dataloader, desc=f"Epoch {epoch}")
+    use_result_token = getattr(config, "use_result_token_contrastive", True)
+    for batch_idx, batch in enumerate(progress_bar):
+        if len(batch) == 8:
+            (input_ids, attention_mask, labels,
+             wrong_input_ids, wrong_attention_mask, wrong_labels,
+             result_token_mask_correct, result_token_mask_wrong) = batch
+        elif len(batch) == 6:
+            (input_ids, attention_mask, labels,
+             wrong_input_ids, wrong_attention_mask, wrong_labels) = batch
+            result_token_mask_correct = result_token_mask_wrong = None
+        else:
+            input_ids, attention_mask, labels = batch
+            wrong_input_ids = wrong_attention_mask = wrong_labels = None
+            result_token_mask_correct = result_token_mask_wrong = None
+
+        input_ids = input_ids.to(config.device)
+        attention_mask = attention_mask.to(config.device)
+        labels = labels.to(config.device)
+
+        inputs = input_ids[:, :-1]
+        targets = labels[:, 1:]
+        input_attention_mask = attention_mask[:, :-1]
+
+        logits = model(inputs, input_attention_mask)
+        ce_loss = nn.functional.cross_entropy(
+            logits.reshape(-1, logits.size(-1)),
+            targets.reshape(-1),
+            ignore_index=-100,
+        )
+        ce_loss_item = ce_loss.detach().item()
+
+        # Apply contrastive only after warmup; use effective weight for this step
+        effective_cw = (
+            contrastive_weight
+            if (wrong_input_ids is not None and contrastive_weight > 0 and global_step >= contrastive_warmup_steps)
+            else 0.0
+        )
+
+        if wrong_input_ids is not None and effective_cw > 0:
+            wrong_input_ids = wrong_input_ids.to(config.device)
+            wrong_attention_mask = wrong_attention_mask.to(config.device)
+            wrong_labels = wrong_labels.to(config.device)
+            wrong_inputs = wrong_input_ids[:, :-1]
+            wrong_targets = wrong_labels[:, 1:]
+            wrong_attn = wrong_attention_mask[:, :-1]
+            logits_wrong = model(wrong_inputs, wrong_attn)
+            completion_mask_correct = (targets != -100)
+            completion_mask_wrong = (wrong_targets != -100)
+            # Use result-token masks when available and enabled (stronger signal at Step/Final Result)
+            r_c = None
+            r_w = None
+            if use_result_token and result_token_mask_correct is not None and result_token_mask_wrong is not None:
+                r_c = result_token_mask_correct.to(config.device)
+                r_w = result_token_mask_wrong.to(config.device)
+                # Align to target length (batch may have different seq lengths for wrong)
+                if r_c.size(1) != targets.size(1):
+                    r_c = r_c[:, : targets.size(1)]
+                if r_w.size(1) != wrong_targets.size(1):
+                    r_w = r_w[:, : wrong_targets.size(1)]
+            cl_loss = compute_contrastive_loss(
+                logits_correct=logits,
+                labels_correct=targets,
+                logits_wrong=logits_wrong,
+                labels_wrong=wrong_targets,
+                completion_mask_correct=completion_mask_correct,
+                completion_mask_wrong=completion_mask_wrong,
+                temperature=contrastive_temperature,
+                result_token_mask_correct=r_c,
+                result_token_mask_wrong=r_w,
+                margin_max=getattr(config, "contrastive_margin_max", None),
+                hard_ratio=getattr(config, "contrastive_hard_ratio", 1.0),
+            )
+            loss = ce_loss + effective_cw * cl_loss
+            cl_loss_item = cl_loss.detach().item()
+        else:
+            loss = ce_loss
+            cl_loss_item = 0.0
+
+        optimizer.zero_grad()
+        loss.backward()
+        torch.nn.utils.clip_grad_norm_(model.parameters(), config.gradient_clip)
+        optimizer.step()
+        scheduler.step()
+        if train_sampler is not None:
+            train_sampler.step()
+
+        total_loss += loss.detach()
+        num_batches += 1
+        global_step += 1
+
+        if batch_idx % 10 == 0:
+            postfix = {
+                "loss": loss.item(),
+                "ce": round(ce_loss_item, 4),
+                "avg_loss": (total_loss / num_batches).item(),
+                "lr": scheduler.get_last_lr()[0],
+            }
+            if wrong_input_ids is not None and contrastive_weight > 0:
+                postfix["cl"] = round(cl_loss_item, 4)
+            progress_bar.set_postfix(postfix)
+
+        if (
+            wandb is not None
+            and wandb.run is not None
+            and getattr(config, "use_wandb", False)
+        ):
+            log_dict = {
+                "train/loss": loss.item(),
+                "train/ce_loss": ce_loss_item,
+                "train/learning_rate": scheduler.get_last_lr()[0],
+            }
+            if wrong_input_ids is not None and contrastive_weight > 0:
+                log_dict["train/contrastive_loss"] = cl_loss_item
+            wandb.log(log_dict, step=global_step)
+
+        if global_step % config.save_every == 0:
+            checkpoint_path = save_checkpoint(
+                model=model,
+                optimizer=optimizer,
+                scheduler=scheduler,
+                epoch=epoch,
+                step=global_step,
+                loss=loss.item(),
+                config=config,
+                tokenizer_vocab_size=tokenizer_vocab_size,
+                output_dir=output_dir,
+                is_final=False,
+            )
+            print(f"\nCheckpoint saved at step {global_step}: {checkpoint_path}")
+
     avg_loss = (total_loss / num_batches).item() if num_batches > 0 else 0.0
     return avg_loss, global_step
 
@@ -263,11 +445,11 @@ def evaluate(
     num_batches = 0
     
     with torch.no_grad():
-        for input_ids, attention_mask, labels in val_dataloader:
-            # Move to device
-            input_ids = input_ids.to(config.device)
-            attention_mask = attention_mask.to(config.device)
-            labels = labels.to(config.device)
+        for batch in val_dataloader:
+            # Batch may be (input_ids, attention_mask, labels) or 6-tuple when contrastive
+            input_ids = batch[0].to(config.device)
+            attention_mask = batch[1].to(config.device)
+            labels = batch[2].to(config.device)
             
             # Prepare inputs and targets
             inputs = input_ids[:, :-1]
@@ -296,7 +478,8 @@ def train_foundational_model(
     tokenizer_path: str,
     output_dir: str,
     config: TrainingConfig,
-    model_config: Optional[Dict] = None
+    model_config: Optional[Dict] = None,
+    tokenizer_type: str = "digit"
 ) -> str:
     """Train foundational model on arithmetic corpus.
     
@@ -313,17 +496,27 @@ def train_foundational_model(
     # Validate configuration
     config.validate()
     
-    # Create unique output directory with timestamp (including microseconds for uniqueness)
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
-    output_dir = os.path.join(output_dir, f"foundational_{timestamp}")
+    # Create output directory
     os.makedirs(output_dir, exist_ok=True)
     
+    # Initialize wandb if requested
+    if getattr(config, "use_wandb", False) and wandb is not None:
+        wandb.init(
+            project="arithmetic-llm",
+            name=f"foundational",
+            config=config.to_dict(),
+        )
+        if model_config is not None:
+            wandb.config.update({"model": model_config}, allow_val_change=True)
+    
     print(f"Training output directory: {output_dir}")
-    print(f"Configuration: {config.to_dict()}")
     
     # Load tokenizer
-    print("Loading tokenizer...")
-    tokenizer = ArithmeticBPETokenizer()
+    print(f"Loading {tokenizer_type} tokenizer...")
+    if tokenizer_type == "digit":
+        tokenizer = ArithmeticDigitTokenizer()
+    else:
+        tokenizer = ArithmeticBPETokenizer()
     tokenizer.load(tokenizer_path)
     vocab_size = len(tokenizer.token2id)
     print(f"Tokenizer vocabulary size: {vocab_size}")
@@ -347,15 +540,17 @@ def train_foundational_model(
 
     # Create dataloaders
     print("Creating dataloaders...")
-    train_dataloader, val_dataloader = create_dataloaders(
+    train_dataloader, val_dataloader, train_sampler = create_dataloaders(
         corpus_path=corpus_path,
         tokenizer=tokenizer,
         batch_size=config.batch_size,
         max_length=max_seq_length,
         train_split=0.9,
         shuffle=True,
-        num_workers=0,
-        mode="foundational"
+        num_workers=getattr(config, 'num_workers', 4),
+        mode="foundational",
+        use_curriculum=getattr(config, 'use_curriculum', False),
+        curriculum_steps=getattr(config, 'curriculum_steps', 10000)
     )
     print(f"Training batches: {len(train_dataloader)}")
     print(f"Validation batches: {len(val_dataloader)}")
@@ -381,6 +576,20 @@ def train_foundational_model(
     
     # Calculate total training steps
     total_steps = len(train_dataloader) * config.num_epochs
+
+    # Sync curriculum sampler timescale with the actual total steps
+    if train_sampler is not None:
+        train_sampler.total_steps = total_steps
+        config.curriculum_steps = total_steps
+        
+    print(f"Configuration: {config.to_dict()}")
+    
+    # Sync curriculum sampler timescale with the actual total steps
+    if train_sampler is not None:
+        train_sampler.total_steps = total_steps
+        config.curriculum_steps = total_steps
+        
+    print(f"Configuration: {config.to_dict()}")
     
     # Initialize scheduler
     scheduler = get_linear_schedule_with_warmup(
@@ -415,7 +624,8 @@ def train_foundational_model(
             epoch=epoch + 1,
             global_step=global_step,
             output_dir=output_dir,
-            tokenizer_vocab_size=vocab_size
+            tokenizer_vocab_size=vocab_size,
+            train_sampler=train_sampler
         )
         
         # Evaluate on validation set
@@ -434,6 +644,21 @@ def train_foundational_model(
             'val_loss': val_loss,
             'learning_rate': scheduler.get_last_lr()[0]
         })
+        
+        # Log epoch metrics to wandb
+        if (
+            getattr(config, "use_wandb", False)
+            and wandb is not None
+            and wandb.run is not None
+        ):
+            wandb.log(
+                {
+                    "epoch/train_loss": train_loss,
+                    "epoch/val_loss": val_loss,
+                    "epoch/learning_rate": scheduler.get_last_lr()[0],
+                },
+                step=global_step,
+            )
         
         # Save best model
         if val_loss < best_val_loss:
